@@ -373,6 +373,9 @@ class CandleAPITester:
             # Determine which user should guess
             guess_token = self.user2_token if about_user == self.user1_data.get('name') else self.user1_token
             
+            # Use the same option that was set as correct
+            guess_option = response.get('options', ['Option A'])[0] if 'options' in response else 'Option A'
+            
             success, response = self.run_test(
                 "Submit trivia guess",
                 "POST",
@@ -380,7 +383,7 @@ class CandleAPITester:
                 200,
                 data={
                     "trivia_id": trivia_id,
-                    "selected_option": "Option A"
+                    "selected_option": guess_option
                 },
                 token=guess_token
             )
