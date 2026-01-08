@@ -432,13 +432,15 @@ async def login(credentials_data: UserLogin):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     token = create_token(user_doc.id)
+    milestones_data = user.get("milestones")
     user_response = UserResponse(
         id=user_doc.id,
         email=user["email"],
         name=user["name"],
         partner_id=user.get("partner_id"),
         partner_name=user.get("partner_name"),
-        created_at=user["created_at"]
+        created_at=user["created_at"],
+        milestones=RelationshipMilestones(**milestones_data) if milestones_data else None
     )
     return TokenResponse(access_token=token, user=user_response)
 
