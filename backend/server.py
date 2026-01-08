@@ -446,7 +446,16 @@ async def login(credentials_data: UserLogin):
 
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
-    return UserResponse(**current_user)
+    milestones_data = current_user.get("milestones")
+    return UserResponse(
+        id=current_user["id"],
+        email=current_user["email"],
+        name=current_user["name"],
+        partner_id=current_user.get("partner_id"),
+        partner_name=current_user.get("partner_name"),
+        created_at=current_user["created_at"],
+        milestones=RelationshipMilestones(**milestones_data) if milestones_data else None
+    )
 
 
 # ============== PAIRING ROUTES ==============
