@@ -1126,6 +1126,16 @@ async def send_love_note(note_data: LoveNoteCreate, current_user: dict = Depends
     db.collection('love_notes').document(note_id).set(note)
     note['id'] = note_id
     
+    # Broadcast real-time update to partner
+    broadcast_user_update(current_user["partner_id"], "notes", {
+        "event": "new_note",
+        "note_id": note_id,
+        "from_user_id": current_user["id"],
+        "from_user_name": current_user["name"],
+        "emoji": note_data.emoji,
+        "preview": note_data.message[:50] + "..." if len(note_data.message) > 50 else note_data.message
+    })
+    
     return LoveNoteResponse(
         id=note_id,
         from_user_id=note["from_user_id"],
