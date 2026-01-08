@@ -751,6 +751,17 @@ async def submit_answer(answer_data: AnswerCreate, current_user: dict = Depends(
     partner_answer = answers.get(partner_id)
     reactions = updated_question.get("reactions", {})
     
+    # Broadcast real-time update to partner
+    pair_key = get_pair_key(user_id, partner_id)
+    broadcast_pair_update(pair_key, "questions", {
+        "event": "answer_submitted",
+        "question_id": answer_data.question_id,
+        "user_id": user_id,
+        "user_name": current_user["name"],
+        "both_answered": both_answered,
+        "date": updated_question["date"]
+    })
+    
     return QuestionResponse(
         id=answer_data.question_id,
         text=updated_question["text"],
