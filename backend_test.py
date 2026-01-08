@@ -326,6 +326,328 @@ class CandleAPITester:
             print(f"   Longest streak: {response.get('longest_streak')}")
             print(f"   Milestones: {response.get('milestones')}")
 
+    def test_trivia_system(self):
+        """Test trivia game system"""
+        print("\n=== TRIVIA SYSTEM TESTS ===")
+        
+        if not self.user1_token or not self.user2_token:
+            print("❌ Skipping trivia tests - missing tokens")
+            return
+        
+        # Test getting trivia question
+        success, response = self.run_test(
+            "Get trivia question",
+            "GET",
+            "trivia/question",
+            200,
+            token=self.user1_token
+        )
+        
+        trivia_id = None
+        about_user = None
+        if success:
+            trivia_id = response.get('id')
+            about_user = response.get('about_user')
+            print(f"   Question: {response.get('question')[:50]}...")
+            print(f"   About: {about_user}")
+            print(f"   Options: {len(response.get('options', []))}")
+        
+        # Test setting correct answer (by the person the question is about)
+        if trivia_id and about_user:
+            # Determine which user should set the answer
+            answer_token = self.user1_token if about_user == self.user1_data.get('name') else self.user2_token
+            
+            success, response = self.run_test(
+                "Set trivia answer",
+                "POST",
+                f"trivia/set-answer?trivia_id={trivia_id}&answer=Option A",
+                200,
+                token=answer_token
+            )
+        
+        # Test submitting guess (by the other user)
+        if trivia_id and about_user:
+            # Determine which user should guess
+            guess_token = self.user2_token if about_user == self.user1_data.get('name') else self.user1_token
+            
+            success, response = self.run_test(
+                "Submit trivia guess",
+                "POST",
+                "trivia/guess",
+                200,
+                data={
+                    "trivia_id": trivia_id,
+                    "selected_option": "Option A"
+                },
+                token=guess_token
+            )
+            
+            if success:
+                print(f"   Correct: {response.get('is_correct')}")
+                print(f"   Points: {response.get('points_earned')}")
+        
+        # Test getting trivia scores
+        success, response = self.run_test(
+            "Get trivia scores",
+            "GET",
+            "trivia/scores",
+            200,
+            token=self.user1_token
+        )
+        
+        if success:
+            print(f"   User score: {response.get('user_score')}")
+            print(f"   Partner score: {response.get('partner_score')}")
+
+    def test_love_notes_system(self):
+        """Test love notes system"""
+        print("\n=== LOVE NOTES SYSTEM TESTS ===")
+        
+        if not self.user1_token or not self.user2_token:
+            print("❌ Skipping love notes tests - missing tokens")
+            return
+        
+        # Test sending a love note
+        success, response = self.run_test(
+            "Send love note",
+            "POST",
+            "notes",
+            200,
+            data={
+                "message": "This is a test love note! 💕",
+                "emoji": "❤️"
+            },
+            token=self.user1_token
+        )
+        
+        note_id = None
+        if success:
+            note_id = response.get('id')
+            print(f"   Note sent with ID: {note_id}")
+        
+        # Test getting received notes (User 2 should receive User 1's note)
+        success, response = self.run_test(
+            "Get received notes",
+            "GET",
+            "notes",
+            200,
+            token=self.user2_token
+        )
+        
+        if success:
+            notes = response if isinstance(response, list) else []
+            print(f"   Received {len(notes)} notes")
+        
+        # Test getting sent notes (User 1 should see their sent note)
+        success, response = self.run_test(
+            "Get sent notes",
+            "GET",
+            "notes/sent",
+            200,
+            token=self.user1_token
+        )
+        
+        if success:
+            notes = response if isinstance(response, list) else []
+            print(f"   Sent {len(notes)} notes")
+        
+        # Test getting unread count
+        success, response = self.run_test(
+            "Get unread count",
+            "GET",
+            "notes/unread-count",
+            200,
+            token=self.user2_token
+        )
+        
+        if success:
+            print(f"   Unread count: {response.get('count')}")
+        
+        # Test marking note as read
+        if note_id:
+            self.run_test(
+                "Mark note as read",
+                "POST",
+                f"notes/{note_id}/read",
+                200,
+                token=self.user2_token
+            )
+
+    def test_date_ideas_system(self):
+        """Test date ideas system"""
+        print("\n=== DATE IDEAS SYSTEM TESTS ===")
+        
+        if not self.user1_token or not self.user2_token:
+            print("❌ Skipping date ideas tests - missing tokens")
+            return
+        
+        # Test generating a date idea
+        success, response = self.run_test(
+            "Generate date idea",
+            "POST",
+            "dates/generate",
+            200,
+            data={
+                "budget": "medium",
+                "mood": "romantic",
+                "location_type": "any"
+            },
+            token=self.user1_token
+        )
+        
+        idea_id = None
+        if success:
+            idea_id = response.get('id')
+            print(f"   Generated idea: {response.get('title')}")
+            print(f"   Description: {response.get('description')[:50]}...")
+        
+        # Test getting all date ideas
+        success, response = self.run_test(
+            "Get all date ideas",
+            "GET",
+            "dates",
+            200,
+            token=self.user1_token
+        )
+        
+        if success:
+            ideas = response if isinstance(response, list) else []
+            print(f"   Found {len(ideas)} date ideas")
+        
+        # Test toggling favorite
+        if idea_id:
+            success, response = self.run_test(
+                "Toggle favorite",
+                "POST",
+                f"dates/{idea_id}/favorite",
+                200,
+                token=self.user1_token
+            )
+            
+            if success:
+                print(f"   Favorite status: {response.get('is_favorite')}")
+        
+        # Test marking as complete
+        if idea_id:
+            success, response = self.run_test(
+                "Mark as complete",
+                "POST",
+                f"dates/{idea_id}/complete",
+                200,
+                token=self.user1_token
+            )
+            
+            if success:
+                print(f"   Complete status: {response.get('is_completed')}")
+
+    def test_memories_system(self):
+        """Test memories system"""
+        print("\n=== MEMORIES SYSTEM TESTS ===")
+        
+        if not self.user1_token or not self.user2_token:
+            print("❌ Skipping memories tests - missing tokens")
+            return
+        
+        # Test creating a memory
+        success, response = self.run_test(
+            "Create memory",
+            "POST",
+            "memories",
+            200,
+            data={
+                "title": "Our First Test Memory",
+                "description": "This is a test memory for the API testing",
+                "date": "2024-01-15",
+                "photo_url": "https://example.com/photo.jpg"
+            },
+            token=self.user1_token
+        )
+        
+        memory_id = None
+        if success:
+            memory_id = response.get('id')
+            print(f"   Created memory: {response.get('title')}")
+            print(f"   Date: {response.get('date')}")
+        
+        # Test getting all memories
+        success, response = self.run_test(
+            "Get all memories",
+            "GET",
+            "memories",
+            200,
+            token=self.user1_token
+        )
+        
+        if success:
+            memories = response if isinstance(response, list) else []
+            print(f"   Found {len(memories)} memories")
+        
+        # Test deleting memory (only creator can delete)
+        if memory_id:
+            success, response = self.run_test(
+                "Delete memory",
+                "DELETE",
+                f"memories/{memory_id}",
+                200,
+                token=self.user1_token
+            )
+            
+            if success:
+                print(f"   Memory deleted successfully")
+
+    def test_mood_system(self):
+        """Test mood check-in system"""
+        print("\n=== MOOD SYSTEM TESTS ===")
+        
+        if not self.user1_token or not self.user2_token:
+            print("❌ Skipping mood tests - missing tokens")
+            return
+        
+        # Test submitting mood
+        success, response = self.run_test(
+            "Submit mood",
+            "POST",
+            "mood",
+            200,
+            data={
+                "mood": "happy",
+                "note": "Feeling great today! Testing the API."
+            },
+            token=self.user1_token
+        )
+        
+        if success:
+            print(f"   Mood submitted: {response.get('mood')}")
+            print(f"   Note: {response.get('note')[:30]}...")
+        
+        # Test getting today's mood
+        success, response = self.run_test(
+            "Get today's mood",
+            "GET",
+            "mood/today",
+            200,
+            token=self.user1_token
+        )
+        
+        if success:
+            user_mood = response.get('user_mood')
+            partner_mood = response.get('partner_mood')
+            print(f"   User mood: {user_mood.get('mood') if user_mood else 'None'}")
+            print(f"   Partner mood: {partner_mood.get('mood') if partner_mood else 'None'}")
+        
+        # Test getting mood history
+        success, response = self.run_test(
+            "Get mood history",
+            "GET",
+            "mood/history?days=30",
+            200,
+            token=self.user1_token
+        )
+        
+        if success:
+            history = response if isinstance(response, list) else []
+            print(f"   Found {len(history)} mood entries")
+
     def test_error_cases(self):
         """Test various error cases"""
         print("\n=== ERROR HANDLING TESTS ===")
@@ -364,6 +686,33 @@ class CandleAPITester:
                 "GET",
                 "streaks",
                 200,
+                token=unpaired_token
+            )
+            
+            # Test new features without partner
+            self.run_test(
+                "Get trivia without partner",
+                "GET",
+                "trivia/question",
+                400,
+                token=unpaired_token
+            )
+            
+            self.run_test(
+                "Send note without partner",
+                "POST",
+                "notes",
+                400,
+                data={"message": "Test note"},
+                token=unpaired_token
+            )
+            
+            self.run_test(
+                "Generate date without partner",
+                "POST",
+                "dates/generate",
+                400,
+                data={"budget": "medium", "mood": "romantic"},
                 token=unpaired_token
             )
 
