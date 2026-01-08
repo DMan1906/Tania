@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
-import { Card, CardContent } from '../components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Flame, MessageCircle, Heart, TrendingUp, ArrowRight, Sparkles, Brain, Calendar, Camera, Sun } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -36,6 +36,18 @@ const FeatureCard = ({ icon: Icon, title, description, to, color, delay }) => {
     );
 };
 
+const MilestoneItem = ({ emoji, label, days }) => (
+    <div className="flex items-center justify-between py-2">
+        <span className="text-sm text-muted-foreground flex items-center gap-2">
+            <span>{emoji}</span>
+            {label}
+        </span>
+        <span className="text-sm font-semibold text-foreground">
+            {days !== null ? `${days} days` : 'Not set'}
+        </span>
+    </div>
+);
+
 export const Home = () => {
     const navigate = useNavigate();
     const { user, isPaired } = useAuth();
@@ -43,6 +55,7 @@ export const Home = () => {
     const [todayQuestion, setTodayQuestion] = useState(null);
     const [todayMood, setTodayMood] = useState({ user_mood: null, partner_mood: null });
     const [unreadNotes, setUnreadNotes] = useState(0);
+    const [relationshipMilestones, setRelationshipMilestones] = useState([]);
     const [loading, setLoading] = useState(true);
 
     const fetchData = useCallback(async () => {
