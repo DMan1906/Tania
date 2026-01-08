@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useRealtime } from '../contexts/RealtimeContext';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -25,6 +26,7 @@ const getCategoryClass = (category) => {
 
 export const TodayQuestion = () => {
     const { user } = useAuth();
+    const { questions: realtimeQuestions, lastUpdate } = useRealtime();
     const [question, setQuestion] = useState(null);
     const [answer, setAnswer] = useState('');
     const [loading, setLoading] = useState(true);
@@ -49,7 +51,18 @@ export const TodayQuestion = () => {
         fetchQuestion();
     }, [fetchQuestion]);
 
-    // Poll for partner's answer every 30 seconds when waiting
+    // Real-time update when partner answers or reacts
+    useEffect(() => {
+        if (realtimeQuestions && lastUpdate) {
+            // Partner answered or reacted - refetch to get latest data
+            fetchQuestion();
+            if (realtimeQuestions.event === 'answer_submitted' && realtimeQuestions.user_id !== user?.id) {
+                toast.success(`${realtimeQuestions.user_name} just answered!`);
+            }
+        }
+    }, [realtimeQuestions, lastUpdate, fetchQuestion, user?.id]);
+
+    // Fallback polling for partner's answer every 30 seconds when waiting (if realtime not available)
     useEffect(() => {
         if (question?.user_answer && !question?.both_answered) {
             const interval = setInterval(fetchQuestion, 30000);
