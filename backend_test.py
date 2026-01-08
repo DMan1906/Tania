@@ -5,7 +5,7 @@ from datetime import datetime
 import time
 
 class CandleAPITester:
-    def __init__(self, base_url="https://couplelink-5.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://auth-register-debug.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.user1_token = None
         self.user2_token = None
