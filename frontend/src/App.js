@@ -231,7 +231,9 @@ function App() {
     return (
         <BrowserRouter>
             <AuthProvider>
-                <AppRoutes />
+                <RealtimeProvider>
+                    <AppRoutes />
+                </RealtimeProvider>
             </AuthProvider>
         </BrowserRouter>
     );
