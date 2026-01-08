@@ -5,9 +5,14 @@ Build a full-featured couples/friends connection app like Candle that helps coup
 
 ## Architecture
 - **Frontend**: React 19 with TailwindCSS, Framer Motion, Shadcn UI
-- **Backend**: FastAPI with Motor (async MongoDB driver)
-- **Database**: MongoDB
-- **AI Integration**: Google Gemini via Emergent LLM Key
+- **Backend**: FastAPI with Firebase Admin SDK
+- **Database**: Google Firebase Firestore
+- **AI Integration**: Google Gemini API (native)
+
+## Setup Documentation
+- See `/app/SETUP_GUIDE.md` for complete setup instructions
+- Firebase credentials: `/app/backend/firebase-credentials.json` (you provide)
+- Gemini API key: Set in `/app/backend/.env`
 
 ## User Personas
 1. **Couples** - Romantic partners wanting to deepen their connection
