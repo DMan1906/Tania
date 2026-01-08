@@ -1399,6 +1399,19 @@ async def submit_mood(mood_data: MoodCheckinCreate, current_user: dict = Depends
     db.collection('moods').document(mood_id).set(mood_doc)
     mood_doc['id'] = mood_id
     
+    # Broadcast real-time update to partner
+    partner_id = current_user.get("partner_id")
+    if partner_id:
+        pair_key = get_pair_key(user_id, partner_id)
+        broadcast_pair_update(pair_key, "moods", {
+            "event": "mood_updated",
+            "user_id": user_id,
+            "user_name": current_user["name"],
+            "mood": mood_data.mood,
+            "note": mood_data.note,
+            "date": today
+        })
+    
     return MoodCheckinResponse(**mood_doc)
 
 @api_router.get("/mood/today", response_model=TodayMoodResponse)
