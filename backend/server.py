@@ -1090,6 +1090,16 @@ async def submit_trivia_guess(answer_data: TriviaAnswerCreate, current_user: dic
             "correct": 1 if is_correct else 0
         })
     
+    # Broadcast real-time update
+    broadcast_pair_update(trivia["pair_key"], "trivia", {
+        "event": "guess_submitted",
+        "trivia_id": answer_data.trivia_id,
+        "user_id": user_id,
+        "user_name": current_user["name"],
+        "is_correct": is_correct,
+        "points": points
+    })
+    
     return TriviaResultResponse(
         id=answer_data.trivia_id,
         question=trivia["question"],
