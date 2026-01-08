@@ -297,6 +297,46 @@ export const Home = () => {
                 </motion.div>
             )}
 
+            {/* Relationship Milestones Card */}
+            {relationshipMilestones.some(m => m.days_since !== null) && (
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.27 }}
+                >
+                    <Card className="border-border/50 shadow-soft bg-gradient-to-br from-pink-500/5 to-rose-500/5">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                                <Heart className="w-4 h-4 text-pink-500" />
+                                Loving You For...
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                            <div className="divide-y divide-border/30">
+                                {relationshipMilestones.map((milestone) => {
+                                    if (milestone.days_since === null) return null;
+                                    const emojiMap = {
+                                        started_talking: '💬',
+                                        first_met: '👋',
+                                        became_official: '💕',
+                                        first_intimate: '💋',
+                                        first_sex: '🔥'
+                                    };
+                                    return (
+                                        <MilestoneItem
+                                            key={milestone.name}
+                                            emoji={emojiMap[milestone.name] || '❤️'}
+                                            label={milestone.label}
+                                            days={milestone.days_since}
+                                        />
+                                    );
+                                })}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
+            )}
+
             {/* Features Grid */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
