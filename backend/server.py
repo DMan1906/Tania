@@ -411,7 +411,8 @@ async def register(user_data: UserCreate):
         name=user_data.name,
         partner_id=None,
         partner_name=None,
-        created_at=user_doc["created_at"]
+        created_at=user_doc["created_at"],
+        milestones=None
     )
     return TokenResponse(access_token=token, user=user_response)
 
