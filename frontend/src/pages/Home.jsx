@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useRealtime } from '../contexts/RealtimeContext';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -51,6 +52,7 @@ const MilestoneItem = ({ emoji, label, days }) => (
 export const Home = () => {
     const navigate = useNavigate();
     const { user, isPaired } = useAuth();
+    const { questions: realtimeQuestions, moods: realtimeMoods, notes: realtimeNotes, milestones: realtimeMilestones, lastUpdate } = useRealtime();
     const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0, milestones: [] });
     const [todayQuestion, setTodayQuestion] = useState(null);
     const [todayMood, setTodayMood] = useState({ user_mood: null, partner_mood: null });
