@@ -357,10 +357,13 @@ class CandleAPITester:
             # Determine which user should set the answer
             answer_token = self.user1_token if about_user == self.user1_data.get('name') else self.user2_token
             
+            # Get the first option from the response
+            first_option = response.get('options', ['Option A'])[0] if 'options' in response else 'Option A'
+            
             success, response = self.run_test(
                 "Set trivia answer",
                 "POST",
-                f"trivia/set-answer?trivia_id={trivia_id}&answer=Option A",
+                f"trivia/set-answer?trivia_id={trivia_id}&answer={first_option}",
                 200,
                 token=answer_token
             )
