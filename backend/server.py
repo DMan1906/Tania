@@ -15,7 +15,7 @@ import string
 import random
 from datetime import datetime, timezone, timedelta
 import jwt
-from passlib.context import CryptContext
+import bcrypt
 import json
 
 ROOT_DIR = Path(__file__).parent
