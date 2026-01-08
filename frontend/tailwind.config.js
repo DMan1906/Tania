@@ -54,9 +54,11 @@ module.exports = {
                 ring: 'hsl(var(--ring))',
             },
             boxShadow: {
-                'soft': '0 4px 20px -2px rgba(224, 122, 95, 0.1)',
-                'card': '0 10px 30px -5px rgba(61, 64, 91, 0.1)',
-                'hover': '0 20px 40px -5px rgba(61, 64, 91, 0.15)',
+                'soft': '0 4px 20px -2px hsl(270 70% 60% / 0.1)',
+                'card': '0 10px 30px -5px hsl(270 30% 5% / 0.3)',
+                'hover': '0 20px 40px -5px hsl(270 70% 60% / 0.2)',
+                'glow': '0 0 30px hsl(270 70% 60% / 0.3)',
+                'glow-lg': '0 0 60px hsl(270 70% 60% / 0.4)',
             },
             keyframes: {
                 'accordion-down': {
@@ -78,6 +80,10 @@ module.exports = {
                 'scale-in': {
                     from: { transform: 'scale(0.95)', opacity: '0' },
                     to: { transform: 'scale(1)', opacity: '1' }
+                },
+                'pulse-glow': {
+                    '0%, 100%': { boxShadow: '0 0 20px hsl(270 70% 60% / 0.3)' },
+                    '50%': { boxShadow: '0 0 40px hsl(270 70% 60% / 0.5)' }
                 }
             },
             animation: {
@@ -86,6 +92,11 @@ module.exports = {
                 'fade-in': 'fade-in 0.5s ease-out',
                 'slide-up': 'slide-up 0.5s ease-out',
                 'scale-in': 'scale-in 0.3s ease-out',
+                'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+            },
+            backgroundImage: {
+                'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
+                'gradient-purple': 'linear-gradient(135deg, hsl(270 30% 15%), hsl(280 30% 12%))',
             }
         }
     },

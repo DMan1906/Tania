@@ -1,14 +1,19 @@
-/* App-specific custom styles */
+/* App-specific custom styles - Dark Purple Theme */
 
 /* Question card decorative element */
+.question-card {
+    position: relative;
+    overflow: hidden;
+}
+
 .question-card::before {
     content: '';
     position: absolute;
-    top: -20px;
-    right: -20px;
-    width: 80px;
-    height: 80px;
-    background: hsl(var(--primary) / 0.1);
+    top: -40px;
+    right: -40px;
+    width: 120px;
+    height: 120px;
+    background: radial-gradient(circle, hsl(270 70% 60% / 0.15) 0%, transparent 70%);
     border-radius: 50%;
     z-index: 0;
 }
@@ -16,11 +21,11 @@
 .question-card::after {
     content: '';
     position: absolute;
-    bottom: -30px;
-    left: -30px;
-    width: 100px;
-    height: 100px;
-    background: hsl(var(--secondary) / 0.15);
+    bottom: -50px;
+    left: -50px;
+    width: 150px;
+    height: 150px;
+    background: radial-gradient(circle, hsl(300 70% 65% / 0.1) 0%, transparent 70%);
     border-radius: 50%;
     z-index: 0;
 }
@@ -29,22 +34,42 @@
 .streak-flame {
     display: inline-block;
     animation: flicker 1.5s ease-in-out infinite alternate;
+    filter: drop-shadow(0 0 8px hsl(270 70% 60% / 0.5));
 }
 
 @keyframes flicker {
     0%, 100% {
         transform: scale(1) rotate(-2deg);
-        filter: brightness(1);
+        filter: brightness(1) drop-shadow(0 0 8px hsl(270 70% 60% / 0.5));
     }
     50% {
         transform: scale(1.1) rotate(2deg);
-        filter: brightness(1.2);
+        filter: brightness(1.2) drop-shadow(0 0 12px hsl(270 70% 60% / 0.7));
     }
 }
 
-/* Button hover effect */
+/* Button hover effect with purple glow */
+.btn-glow {
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.btn-glow::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, transparent, hsl(270 70% 70% / 0.2), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
+}
+
+.btn-glow:hover::before {
+    transform: translateX(100%);
+}
+
 .btn-glow:hover {
-    box-shadow: 0 0 20px hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 30px hsl(270 70% 60% / 0.4), 0 0 60px hsl(270 70% 60% / 0.2);
 }
 
 /* Answer reveal animation */
@@ -66,6 +91,7 @@
 /* Waiting animation dots */
 .waiting-dots span {
     animation: bounce 1.4s infinite ease-in-out both;
+    background: hsl(270 70% 60%);
 }
 
 .waiting-dots span:nth-child(1) {
@@ -85,19 +111,73 @@
     }
 }
 
-/* Category badge colors */
-.category-emotional { @apply bg-pink-100 text-pink-700; }
-.category-playful { @apply bg-amber-100 text-amber-700; }
-.category-gratitude { @apply bg-emerald-100 text-emerald-700; }
-.category-dreams { @apply bg-purple-100 text-purple-700; }
-.category-communication { @apply bg-blue-100 text-blue-700; }
-.category-spicy { @apply bg-red-100 text-red-700; }
-.category-hypothetical { @apply bg-indigo-100 text-indigo-700; }
+/* Category badge colors - Purple theme variations */
+.category-emotional { 
+    @apply bg-pink-500/20 text-pink-300 border border-pink-500/30;
+}
+.category-playful { 
+    @apply bg-amber-500/20 text-amber-300 border border-amber-500/30;
+}
+.category-gratitude { 
+    @apply bg-emerald-500/20 text-emerald-300 border border-emerald-500/30;
+}
+.category-dreams { 
+    @apply bg-purple-500/20 text-purple-300 border border-purple-500/30;
+}
+.category-communication { 
+    @apply bg-blue-500/20 text-blue-300 border border-blue-500/30;
+}
+.category-spicy { 
+    @apply bg-red-500/20 text-red-300 border border-red-500/30;
+}
+.category-hypothetical { 
+    @apply bg-indigo-500/20 text-indigo-300 border border-indigo-500/30;
+}
 
-.dark .category-emotional { @apply bg-pink-900/30 text-pink-300; }
-.dark .category-playful { @apply bg-amber-900/30 text-amber-300; }
-.dark .category-gratitude { @apply bg-emerald-900/30 text-emerald-300; }
-.dark .category-dreams { @apply bg-purple-900/30 text-purple-300; }
-.dark .category-communication { @apply bg-blue-900/30 text-blue-300; }
-.dark .category-spicy { @apply bg-red-900/30 text-red-300; }
-.dark .category-hypothetical { @apply bg-indigo-900/30 text-indigo-300; }
+/* Card hover effects */
+.card-hover {
+    transition: all 0.3s ease;
+}
+
+.card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px hsl(270 70% 60% / 0.15);
+    border-color: hsl(270 70% 60% / 0.3);
+}
+
+/* Navigation active indicator */
+nav a.active {
+    position: relative;
+}
+
+nav a.active::after {
+    content: '';
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: hsl(270 70% 60%);
+    box-shadow: 0 0 8px hsl(270 70% 60%);
+}
+
+/* Input focus styles */
+input:focus, textarea:focus {
+    border-color: hsl(270 70% 60%) !important;
+    box-shadow: 0 0 0 2px hsl(270 70% 60% / 0.2) !important;
+}
+
+/* Selection color */
+::selection {
+    background: hsl(270 70% 60% / 0.3);
+    color: hsl(270 20% 95%);
+}
+
+/* Subtle grid pattern background */
+.bg-pattern {
+    background-image: 
+        radial-gradient(circle at 25% 25%, hsl(270 70% 60% / 0.03) 0%, transparent 50%),
+        radial-gradient(circle at 75% 75%, hsl(300 70% 65% / 0.03) 0%, transparent 50%);
+}
