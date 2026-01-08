@@ -65,16 +65,18 @@ export const Home = () => {
         }
         
         try {
-            const [streakRes, questionRes, moodRes, notesRes] = await Promise.all([
+            const [streakRes, questionRes, moodRes, notesRes, milestonesRes] = await Promise.all([
                 axios.get(`${API_URL}/streaks`),
                 axios.get(`${API_URL}/questions/today`),
                 axios.get(`${API_URL}/mood/today`),
-                axios.get(`${API_URL}/notes/unread-count`)
+                axios.get(`${API_URL}/notes/unread-count`),
+                axios.get(`${API_URL}/milestones`)
             ]);
             setStreak(streakRes.data);
             setTodayQuestion(questionRes.data);
             setTodayMood(moodRes.data);
             setUnreadNotes(notesRes.data.count);
+            setRelationshipMilestones(milestonesRes.data);
         } catch (err) {
             console.error('Failed to fetch home data:', err);
         } finally {
