@@ -69,6 +69,7 @@ const MoodCard = ({ mood, isPartner }) => {
 
 export const MoodCheckin = () => {
     const { user } = useAuth();
+    const { moods: realtimeMoods, lastUpdate } = useRealtime();
     const [todayMood, setTodayMood] = useState({ user_mood: null, partner_mood: null });
     const [moodHistory, setMoodHistory] = useState([]);
     const [selectedMood, setSelectedMood] = useState(null);
@@ -99,6 +100,19 @@ export const MoodCheckin = () => {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    // Real-time update when partner updates mood
+    useEffect(() => {
+        if (realtimeMoods && lastUpdate) {
+            fetchData();
+            if (realtimeMoods.event === 'mood_updated' && realtimeMoods.user_id !== user?.id) {
+                const moodConfig = MOOD_OPTIONS.find(m => m.value === realtimeMoods.mood);
+                toast.success(`${realtimeMoods.user_name} is feeling ${realtimeMoods.mood}`, {
+                    icon: moodConfig?.icon
+                });
+            }
+        }
+    }, [realtimeMoods, lastUpdate, fetchData, user?.id]);
 
     const submitMood = async () => {
         if (!selectedMood) {
