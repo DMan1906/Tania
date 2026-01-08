@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useRealtime } from '../contexts/RealtimeContext';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -12,6 +13,7 @@ const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 export const Trivia = () => {
     const { user } = useAuth();
+    const { trivia: realtimeTrivia, lastUpdate } = useRealtime();
     const [question, setQuestion] = useState(null);
     const [scores, setScores] = useState({ user_score: 0, partner_score: 0, user_correct: 0, partner_correct: 0, total_questions: 0 });
     const [loading, setLoading] = useState(false);
@@ -32,6 +34,21 @@ export const Trivia = () => {
     useEffect(() => {
         fetchScores();
     }, [fetchScores]);
+
+    // Real-time update when partner interacts with trivia
+    useEffect(() => {
+        if (realtimeTrivia && lastUpdate) {
+            // Partner set the answer - we can now guess
+            if (realtimeTrivia.event === 'answer_set' && waitingForAnswer) {
+                setWaitingForAnswer(false);
+                toast.success(`${user?.partner_name} set their answer! Your turn to guess!`);
+            }
+            // Partner guessed - refresh scores
+            if (realtimeTrivia.event === 'guess_submitted') {
+                fetchScores();
+            }
+        }
+    }, [realtimeTrivia, lastUpdate, waitingForAnswer, user?.partner_name, fetchScores]);
 
     const getNewQuestion = async () => {
         setLoading(true);
