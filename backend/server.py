@@ -1029,6 +1029,16 @@ async def set_trivia_answer(trivia_id: str, answer: str, current_user: dict = De
         raise HTTPException(status_code=400, detail="Invalid answer option")
     
     trivia_ref.update({"correct_answer": answer})
+    
+    # Broadcast real-time update
+    pair_key = trivia["pair_key"]
+    broadcast_pair_update(pair_key, "trivia", {
+        "event": "answer_set",
+        "trivia_id": trivia_id,
+        "user_id": current_user["id"],
+        "user_name": current_user["name"]
+    })
+    
     return {"status": "ok"}
 
 @api_router.post("/trivia/guess", response_model=TriviaResultResponse)
