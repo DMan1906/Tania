@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, db as rtdb
 import google.generativeai as genai
 import os
 import logging
@@ -24,6 +24,7 @@ load_dotenv(ROOT_DIR / '.env')
 # ============== FIREBASE INITIALIZATION ==============
 # Initialize Firebase Admin SDK
 firebase_cred_path = os.environ.get('FIREBASE_CREDENTIALS_PATH', str(ROOT_DIR / 'firebase-credentials.json'))
+firebase_database_url = os.environ.get('FIREBASE_DATABASE_URL')
 
 # Check if credentials file exists or use environment variable
 if os.path.exists(firebase_cred_path):
@@ -34,8 +35,34 @@ elif os.environ.get('FIREBASE_CREDENTIALS_JSON'):
 else:
     raise ValueError("Firebase credentials not found. Please set FIREBASE_CREDENTIALS_PATH or FIREBASE_CREDENTIALS_JSON")
 
-firebase_admin.initialize_app(cred)
+# Initialize with Realtime Database URL if available
+firebase_options = {}
+if firebase_database_url:
+    firebase_options['databaseURL'] = firebase_database_url
+
+firebase_admin.initialize_app(cred, firebase_options)
 db = firestore.client()
+
+# ============== REALTIME DATABASE HELPERS ==============
+def broadcast_realtime(path: str, data: dict):
+    """Broadcast data to Firebase Realtime Database for real-time sync"""
+    try:
+        if firebase_database_url:
+            ref = rtdb.reference(path)
+            ref.set({
+                **data,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+    except Exception as e:
+        logger.warning(f"Failed to broadcast to RTDB: {e}")
+
+def broadcast_pair_update(pair_key: str, update_type: str, data: dict):
+    """Broadcast update to a pair's realtime channel"""
+    broadcast_realtime(f"pairs/{pair_key}/{update_type}", data)
+
+def broadcast_user_update(user_id: str, update_type: str, data: dict):
+    """Broadcast update to a user's realtime channel"""
+    broadcast_realtime(f"users/{user_id}/{update_type}", data)
 
 # ============== GEMINI INITIALIZATION ==============
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
