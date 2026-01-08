@@ -4,16 +4,45 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
-import { Flame, MessageCircle, Heart, TrendingUp, ArrowRight, Sparkles } from 'lucide-react';
+import { Flame, MessageCircle, Heart, TrendingUp, ArrowRight, Sparkles, Brain, Calendar, Camera, Sun } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+const FeatureCard = ({ icon: Icon, title, description, to, color, delay }) => {
+    const navigate = useNavigate();
+    
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay }}
+            onClick={() => navigate(to)}
+            className="cursor-pointer"
+        >
+            <Card className="border-border/50 shadow-soft hover:shadow-card transition-all hover:scale-[1.02] active:scale-[0.98]">
+                <CardContent className="p-4 flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full ${color} flex items-center justify-center flex-shrink-0`}>
+                        <Icon className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-foreground text-sm">{title}</h3>
+                        <p className="text-xs text-muted-foreground truncate">{description}</p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                </CardContent>
+            </Card>
+        </motion.div>
+    );
+};
 
 export const Home = () => {
     const navigate = useNavigate();
     const { user, isPaired } = useAuth();
     const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0, milestones: [] });
     const [todayQuestion, setTodayQuestion] = useState(null);
+    const [todayMood, setTodayMood] = useState({ user_mood: null, partner_mood: null });
+    const [unreadNotes, setUnreadNotes] = useState(0);
     const [loading, setLoading] = useState(true);
 
     const fetchData = useCallback(async () => {
@@ -23,12 +52,16 @@ export const Home = () => {
         }
         
         try {
-            const [streakRes, questionRes] = await Promise.all([
+            const [streakRes, questionRes, moodRes, notesRes] = await Promise.all([
                 axios.get(`${API_URL}/streaks`),
-                axios.get(`${API_URL}/questions/today`)
+                axios.get(`${API_URL}/questions/today`),
+                axios.get(`${API_URL}/mood/today`),
+                axios.get(`${API_URL}/notes/unread-count`)
             ]);
             setStreak(streakRes.data);
             setTodayQuestion(questionRes.data);
+            setTodayMood(moodRes.data);
+            setUnreadNotes(notesRes.data.count);
         } catch (err) {
             console.error('Failed to fetch home data:', err);
         } finally {
@@ -40,7 +73,6 @@ export const Home = () => {
         fetchData();
     }, [fetchData]);
 
-    // Redirect to pairing if not paired
     useEffect(() => {
         if (!loading && !isPaired) {
             navigate('/pairing');
@@ -66,9 +98,10 @@ export const Home = () => {
     };
 
     const status = getQuestionStatus();
+    const greeting = new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 18 ? 'Afternoon' : 'Evening';
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-6">
             {/* Welcome Section */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -76,7 +109,7 @@ export const Home = () => {
                 className="text-center"
             >
                 <h1 className="font-serif text-3xl font-bold text-foreground mb-2">
-                    Good {new Date().getHours() < 12 ? 'Morning' : new Date().getHours() < 18 ? 'Afternoon' : 'Evening'}, {user?.name?.split(' ')[0]}
+                    Good {greeting}, {user?.name?.split(' ')[0]}
                 </h1>
                 <p className="text-muted-foreground">
                     You & {user?.partner_name?.split(' ')[0]} are on a journey together
@@ -115,7 +148,6 @@ export const Home = () => {
                             </div>
                         </div>
 
-                        {/* Milestones */}
                         {streak.milestones && streak.milestones.length > 0 && (
                             <div className="mt-4 pt-4 border-t border-border/30">
                                 <p className="text-xs text-muted-foreground mb-2">Milestones reached</p>
@@ -211,11 +243,101 @@ export const Home = () => {
                 </Card>
             </motion.div>
 
-            {/* Partner info */}
+            {/* Partner Mood Widget */}
+            {todayMood.partner_mood && (
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.25 }}
+                >
+                    <Card className="border-border/50 shadow-soft bg-secondary/5">
+                        <CardContent className="p-4">
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">
+                                    {todayMood.partner_mood.mood === 'happy' && '😊'}
+                                    {todayMood.partner_mood.mood === 'content' && '🙂'}
+                                    {todayMood.partner_mood.mood === 'neutral' && '😐'}
+                                    {todayMood.partner_mood.mood === 'stressed' && '😰'}
+                                    {todayMood.partner_mood.mood === 'sad' && '😢'}
+                                </span>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-foreground">
+                                        {user?.partner_name?.split(' ')[0]} is feeling {todayMood.partner_mood.mood}
+                                    </p>
+                                    {todayMood.partner_mood.note && (
+                                        <p className="text-xs text-muted-foreground truncate">{todayMood.partner_mood.note}</p>
+                                    )}
+                                </div>
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => navigate('/mood')}
+                                    className="rounded-full"
+                                >
+                                    <Sun className="w-4 h-4" />
+                                </Button>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </motion.div>
+            )}
+
+            {/* Features Grid */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
+            >
+                <h3 className="text-sm font-medium text-muted-foreground mb-3">Explore Together</h3>
+                <div className="grid grid-cols-1 gap-3">
+                    <FeatureCard
+                        icon={Brain}
+                        title="Trivia Game"
+                        description="Test how well you know each other"
+                        to="/trivia"
+                        color="bg-purple-500/20 text-purple-500"
+                        delay={0.35}
+                    />
+                    <FeatureCard
+                        icon={Heart}
+                        title="Love Notes"
+                        description={unreadNotes > 0 ? `${unreadNotes} unread note${unreadNotes > 1 ? 's' : ''}` : "Send sweet messages"}
+                        to="/notes"
+                        color="bg-pink-500/20 text-pink-500"
+                        delay={0.4}
+                    />
+                    <FeatureCard
+                        icon={Calendar}
+                        title="Date Ideas"
+                        description="AI-powered date suggestions"
+                        to="/dates"
+                        color="bg-blue-500/20 text-blue-500"
+                        delay={0.45}
+                    />
+                    <FeatureCard
+                        icon={Camera}
+                        title="Memories"
+                        description="Capture your special moments"
+                        to="/memories"
+                        color="bg-amber-500/20 text-amber-500"
+                        delay={0.5}
+                    />
+                    <FeatureCard
+                        icon={Sun}
+                        title="Mood Check-in"
+                        description={!todayMood.user_mood ? "How are you feeling today?" : "Update your mood"}
+                        to="/mood"
+                        color="bg-green-500/20 text-green-500"
+                        delay={0.55}
+                    />
+                </div>
+            </motion.div>
+
+            {/* Partner info */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
                 className="text-center py-4"
             >
                 <p className="text-sm text-muted-foreground">
