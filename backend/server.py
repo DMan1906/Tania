@@ -72,6 +72,13 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class RelationshipMilestones(BaseModel):
+    started_talking: Optional[str] = None  # Date we started talking
+    first_met: Optional[str] = None  # Date we actually met
+    became_official: Optional[str] = None  # Date we became official
+    first_intimate: Optional[str] = None  # First intimate moment
+    first_sex: Optional[str] = None  # First time we had sex
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str
@@ -80,6 +87,7 @@ class UserResponse(BaseModel):
     partner_id: Optional[str] = None
     partner_name: Optional[str] = None
     created_at: str
+    milestones: Optional[RelationshipMilestones] = None
 
 class TokenResponse(BaseModel):
     access_token: str
