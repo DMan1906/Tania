@@ -590,16 +590,13 @@ class CandleAPITester:
         
         # Test deleting memory (only creator can delete)
         if memory_id:
-            success, response = self.run_test(
+            self.run_test(
                 "Delete memory",
                 "DELETE",
                 f"memories/{memory_id}",
                 200,
                 token=self.user1_token
             )
-            
-            if success:
-                print(f"   Memory deleted successfully")
 
     def test_mood_system(self):
         """Test mood check-in system"""
