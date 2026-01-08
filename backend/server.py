@@ -1524,6 +1524,249 @@ async def get_mood_history(days: int = 30, current_user: dict = Depends(get_curr
     return all_moods[:days * 2]
 
 
+# ============== LOVE COUPONS ROUTES ==============
+
+DEFAULT_COUPONS = [
+    {"title": "10-Minute Massage", "emoji": "💆"},
+    {"title": "Breakfast in Bed", "emoji": "🍳"},
+    {"title": "Movie Night Pick", "emoji": "🎬"},
+    {"title": "One Free Pass", "emoji": "🎟️"},
+    {"title": "Surprise Date Night", "emoji": "✨"},
+    {"title": "Cuddle Session", "emoji": "🤗"},
+    {"title": "Home Cooked Meal", "emoji": "👨‍🍳"},
+    {"title": "Back Scratch", "emoji": "💅"},
+]
+
+@api_router.post("/coupons", response_model=LoveCouponResponse)
+async def create_coupon(coupon_data: LoveCouponCreate, current_user: dict = Depends(get_current_user)):
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    coupon_id = str(uuid.uuid4())
+    
+    coupon = {
+        "pair_key": pair_key,
+        "title": coupon_data.title,
+        "description": coupon_data.description,
+        "emoji": coupon_data.emoji or "🎟️",
+        "created_by": current_user["id"],
+        "created_by_name": current_user["name"],
+        "is_redeemed": False,
+        "redeemed_at": None,
+        "redeemed_by": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    db.collection('coupons').document(coupon_id).set(coupon)
+    
+    # Broadcast real-time update
+    broadcast_pair_update(pair_key, "coupons", {
+        "event": "coupon_created",
+        "coupon_id": coupon_id,
+        "title": coupon_data.title,
+        "created_by_name": current_user["name"]
+    })
+    
+    return LoveCouponResponse(id=coupon_id, **{k: v for k, v in coupon.items() if k != "pair_key"})
+
+@api_router.get("/coupons", response_model=List[LoveCouponResponse])
+async def get_coupons(current_user: dict = Depends(get_current_user)):
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    coupons = db.collection('coupons').where('pair_key', '==', pair_key).get()
+    
+    return [LoveCouponResponse(
+        id=doc.id,
+        title=doc.to_dict()["title"],
+        description=doc.to_dict().get("description"),
+        emoji=doc.to_dict().get("emoji", "🎟️"),
+        created_by=doc.to_dict()["created_by"],
+        created_by_name=doc.to_dict()["created_by_name"],
+        is_redeemed=doc.to_dict().get("is_redeemed", False),
+        redeemed_at=doc.to_dict().get("redeemed_at"),
+        redeemed_by=doc.to_dict().get("redeemed_by"),
+        created_at=doc.to_dict()["created_at"]
+    ) for doc in coupons]
+
+@api_router.post("/coupons/{coupon_id}/redeem")
+async def redeem_coupon(coupon_id: str, current_user: dict = Depends(get_current_user)):
+    coupon_ref = db.collection('coupons').document(coupon_id)
+    coupon_doc = coupon_ref.get()
+    
+    if not coupon_doc.exists:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+    
+    coupon = coupon_doc.to_dict()
+    
+    # Can only redeem coupons given to you (created by partner)
+    if coupon["created_by"] == current_user["id"]:
+        raise HTTPException(status_code=400, detail="You can only redeem coupons given to you")
+    
+    if coupon.get("is_redeemed"):
+        raise HTTPException(status_code=400, detail="Coupon already redeemed")
+    
+    coupon_ref.update({
+        "is_redeemed": True,
+        "redeemed_at": datetime.now(timezone.utc).isoformat(),
+        "redeemed_by": current_user["id"]
+    })
+    
+    # Broadcast real-time update
+    broadcast_pair_update(coupon["pair_key"], "coupons", {
+        "event": "coupon_redeemed",
+        "coupon_id": coupon_id,
+        "title": coupon["title"],
+        "redeemed_by_name": current_user["name"]
+    })
+    
+    return {"status": "redeemed"}
+
+@api_router.get("/coupons/templates")
+async def get_coupon_templates():
+    return DEFAULT_COUPONS
+
+
+# ============== BUCKET LIST ROUTES ==============
+
+BUCKET_CATEGORIES = ["travel", "experiences", "food", "goals", "romance", "general"]
+
+@api_router.post("/bucket-list", response_model=BucketListItemResponse)
+async def create_bucket_item(item_data: BucketListItemCreate, current_user: dict = Depends(get_current_user)):
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    item_id = str(uuid.uuid4())
+    
+    item = {
+        "pair_key": pair_key,
+        "title": item_data.title,
+        "category": item_data.category or "general",
+        "notes": item_data.notes,
+        "is_completed": False,
+        "completed_at": None,
+        "created_by": current_user["id"],
+        "created_by_name": current_user["name"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    db.collection('bucket_list').document(item_id).set(item)
+    
+    # Broadcast real-time update
+    broadcast_pair_update(pair_key, "bucket_list", {
+        "event": "item_added",
+        "item_id": item_id,
+        "title": item_data.title,
+        "created_by_name": current_user["name"]
+    })
+    
+    return BucketListItemResponse(id=item_id, **{k: v for k, v in item.items() if k != "pair_key"})
+
+@api_router.get("/bucket-list", response_model=List[BucketListItemResponse])
+async def get_bucket_list(current_user: dict = Depends(get_current_user)):
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    items = db.collection('bucket_list').where('pair_key', '==', pair_key).get()
+    
+    return [BucketListItemResponse(
+        id=doc.id,
+        title=doc.to_dict()["title"],
+        category=doc.to_dict().get("category", "general"),
+        notes=doc.to_dict().get("notes"),
+        is_completed=doc.to_dict().get("is_completed", False),
+        completed_at=doc.to_dict().get("completed_at"),
+        created_by=doc.to_dict()["created_by"],
+        created_by_name=doc.to_dict()["created_by_name"],
+        created_at=doc.to_dict()["created_at"]
+    ) for doc in items]
+
+@api_router.post("/bucket-list/{item_id}/complete")
+async def toggle_bucket_item(item_id: str, current_user: dict = Depends(get_current_user)):
+    item_ref = db.collection('bucket_list').document(item_id)
+    item_doc = item_ref.get()
+    
+    if not item_doc.exists:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    item = item_doc.to_dict()
+    new_status = not item.get("is_completed", False)
+    
+    item_ref.update({
+        "is_completed": new_status,
+        "completed_at": datetime.now(timezone.utc).isoformat() if new_status else None
+    })
+    
+    # Broadcast real-time update
+    broadcast_pair_update(item["pair_key"], "bucket_list", {
+        "event": "item_toggled",
+        "item_id": item_id,
+        "title": item["title"],
+        "is_completed": new_status,
+        "toggled_by_name": current_user["name"]
+    })
+    
+    return {"is_completed": new_status}
+
+@api_router.delete("/bucket-list/{item_id}")
+async def delete_bucket_item(item_id: str, current_user: dict = Depends(get_current_user)):
+    item_ref = db.collection('bucket_list').document(item_id)
+    item_doc = item_ref.get()
+    
+    if not item_doc.exists:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    item = item_doc.to_dict()
+    item_ref.delete()
+    
+    # Broadcast real-time update
+    broadcast_pair_update(item["pair_key"], "bucket_list", {
+        "event": "item_deleted",
+        "item_id": item_id
+    })
+    
+    return {"status": "deleted"}
+
+@api_router.get("/bucket-list/categories")
+async def get_bucket_categories():
+    return BUCKET_CATEGORIES
+
+
+# ============== DATE NIGHT SPINNER ==============
+
+DATE_PRESETS = {
+    "movies": ["Watch a romantic comedy", "Movie marathon", "Drive-in theater", "Foreign film night"],
+    "food": ["Cook together", "Order from a new restaurant", "Fancy dinner out", "Picnic in the park"],
+    "adventure": ["Go hiking", "Try a new activity", "Road trip", "Explore a new neighborhood"],
+    "relaxation": ["Spa night at home", "Stargazing", "Beach day", "Lazy Sunday in bed"],
+    "creative": ["Paint together", "Build something", "Photo walk", "Write love letters"],
+    "games": ["Board game night", "Video games", "Trivia night", "Puzzle together"]
+}
+
+@api_router.get("/date-spinner/spin")
+async def spin_date_wheel(category: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    if category and category in DATE_PRESETS:
+        options = DATE_PRESETS[category]
+    else:
+        # Mix from all categories
+        options = [item for items in DATE_PRESETS.values() for item in items]
+    
+    selected = random.choice(options)
+    
+    return {
+        "result": selected,
+        "category": category or "mixed"
+    }
+
+@api_router.get("/date-spinner/categories")
+async def get_spinner_categories():
+    return list(DATE_PRESETS.keys())
+
+
 # ============== HEALTH CHECK ==============
 
 @api_router.get("/")
