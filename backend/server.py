@@ -47,7 +47,6 @@ JWT_SECRET = os.environ.get('JWT_SECRET', 'candle-app-secret-change-in-productio
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 # Create the main app and router
