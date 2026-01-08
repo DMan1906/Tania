@@ -511,6 +511,17 @@ async def update_milestones(milestone_data: MilestoneUpdate, current_user: dict 
     
     user_ref.update({"milestones": existing_milestones})
     
+    # Broadcast real-time update to partner
+    partner_id = current_user.get("partner_id")
+    if partner_id:
+        pair_key = get_pair_key(current_user["id"], partner_id)
+        broadcast_pair_update(pair_key, "milestones", {
+            "event": "milestones_updated",
+            "user_id": current_user["id"],
+            "user_name": current_user["name"],
+            "milestones": existing_milestones
+        })
+    
     # Return updated user
     updated_user = user_ref.get().to_dict()
     milestones_data = updated_user.get("milestones")
