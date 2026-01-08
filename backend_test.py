@@ -730,6 +730,14 @@ def main():
     tester.test_pairing_system()
     tester.test_questions_system()
     tester.test_streaks_system()
+    
+    # Test new features
+    tester.test_trivia_system()
+    tester.test_love_notes_system()
+    tester.test_date_ideas_system()
+    tester.test_memories_system()
+    tester.test_mood_system()
+    
     tester.test_error_cases()
     
     # Print final results
