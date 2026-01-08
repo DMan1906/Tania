@@ -1,0 +1,151 @@
+{
+  "design_system": {
+    "identity": {
+      "name": "Candle - Connection App",
+      "tone": "Intimate, Warm, Playful, Safe, Trustworthy",
+      "visual_mood": "Cozy, Soft, Tactile, Emotional",
+      "core_values": ["Vulnerability", "Consistency", "Growth"]
+    },
+    "typography": {
+      "font_family": {
+        "headings": "Playfair Display, serif",
+        "body": "Nunito, sans-serif",
+        "mono": "JetBrains Mono, monospace"
+      },
+      "weights": {
+        "light": 300,
+        "regular": 400,
+        "medium": 500,
+        "bold": 700,
+        "black": 900
+      },
+      "sizes": {
+        "h1": "text-4xl md:text-5xl leading-tight tracking-tight",
+        "h2": "text-3xl md:text-4xl leading-snug",
+        "h3": "text-2xl md:text-3xl leading-snug",
+        "body": "text-base md:text-lg leading-relaxed",
+        "small": "text-sm leading-normal",
+        "tiny": "text-xs tracking-wide uppercase"
+      }
+    },
+    "colors": {
+      "palette": {
+        "light": {
+          "background": "#FDFBF7",
+          "foreground": "#3D405B",
+          "card": "#FFFFFF",
+          "card_foreground": "#3D405B",
+          "primary": "#E07A5F",
+          "primary_foreground": "#FFFFFF",
+          "secondary": "#F2CC8F",
+          "secondary_foreground": "#3D405B",
+          "muted": "#F4F1DE",
+          "muted_foreground": "#81B29A",
+          "accent": "#81B29A",
+          "accent_foreground": "#FFFFFF",
+          "destructive": "#EF476F",
+          "destructive_foreground": "#FFFFFF",
+          "border": "#EAE2D6",
+          "input": "#EAE2D6",
+          "ring": "#E07A5F"
+        },
+        "dark": {
+          "background": "#2D2A2E",
+          "foreground": "#F4F1DE",
+          "card": "#3D405B",
+          "card_foreground": "#F4F1DE",
+          "primary": "#E07A5F",
+          "primary_foreground": "#FFFFFF",
+          "secondary": "#F2CC8F",
+          "secondary_foreground": "#2D2A2E",
+          "muted": "#3D405B",
+          "muted_foreground": "#81B29A",
+          "accent": "#81B29A",
+          "accent_foreground": "#FFFFFF",
+          "destructive": "#EF476F",
+          "destructive_foreground": "#FFFFFF",
+          "border": "#4A4E69",
+          "input": "#4A4E69",
+          "ring": "#E07A5F"
+        }
+      },
+      "usage": {
+        "primary": "Main CTAs, active states, key highlights",
+        "secondary": "Supporting elements, badges, illustrations",
+        "accent": "Success states, streaks, positive feedback",
+        "background": "Page background (Cream/Charcoal)",
+        "card": "Question cards, input areas"
+      }
+    },
+    "spacing": {
+      "container": "max-w-md mx-auto px-6 py-8 md:max-w-2xl",
+      "section": "py-12 md:py-16",
+      "card_padding": "p-6 md:p-8",
+      "gap": "gap-6 md:gap-8"
+    },
+    "radius": {
+      "default": "1rem",
+      "card": "1.5rem",
+      "button": "9999px",
+      "input": "0.75rem"
+    },
+    "shadows": {
+      "soft": "0 4px 20px -2px rgba(224, 122, 95, 0.1)",
+      "card": "0 10px 30px -5px rgba(61, 64, 91, 0.1)",
+      "hover": "0 20px 40px -5px rgba(61, 64, 91, 0.15)"
+    },
+    "animation": {
+      "transition": "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+      "hover_scale": "hover:scale-[1.02] active:scale-[0.98]",
+      "fade_in": "animate-in fade-in duration-500",
+      "slide_up": "animate-in slide-in-from-bottom-4 duration-500"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 rounded-full px-8 py-3 font-bold shadow-soft transition-all hover:shadow-hover",
+      "secondary": "bg-secondary/20 text-secondary-foreground hover:bg-secondary/30 rounded-full px-6 py-2 font-medium transition-colors",
+      "ghost": "hover:bg-muted text-muted-foreground hover:text-foreground rounded-full px-4 py-2 transition-colors",
+      "outline": "border-2 border-primary text-primary hover:bg-primary hover:text-primary-foreground rounded-full px-8 py-3 font-bold transition-all"
+    },
+    "cards": {
+      "question": "bg-card text-card-foreground rounded-[2rem] p-8 shadow-card border border-border/50 relative overflow-hidden",
+      "stat": "bg-white/50 dark:bg-black/20 backdrop-blur-sm rounded-2xl p-4 border border-border/30",
+      "input": "bg-muted/30 rounded-xl p-4 border-2 border-transparent focus-within:border-primary transition-colors"
+    },
+    "inputs": {
+      "text": "w-full bg-transparent border-b-2 border-border focus:border-primary outline-none py-2 text-lg transition-colors placeholder:text-muted-foreground/50",
+      "area": "w-full bg-muted/50 rounded-xl p-4 min-h-[120px] outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none"
+    },
+    "navigation": {
+      "bottom_bar": "fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-lg border-t border-border/50 pb-safe pt-2 px-6 flex justify-around items-center z-50",
+      "item": "flex flex-col items-center gap-1 p-2 text-muted-foreground hover:text-primary transition-colors data-[active=true]:text-primary"
+    }
+  },
+  "assets": {
+    "icons": "lucide-react",
+    "images": {
+      "hero_couple": "https://images.pexels.com/photos/6690902/pexels-photo-6690902.jpeg",
+      "cozy_texture": "https://images.pexels.com/photos/19332212/pexels-photo-19332212.jpeg",
+      "logo_placeholder": "https://placehold.co/100x100/E07A5F/FFFFFF?text=Candle"
+    }
+  },
+  "instructions_to_main_agent": [
+    "1. INSTALL FONTS: Run `npm install @fontsource/playfair-display @fontsource/nunito` and import them in `index.js` or `App.js`.",
+    "2. CONFIGURE TAILWIND: Update `tailwind.config.js` with the colors, fonts, and border radius defined in `design_system`.",
+    "3. CLEANUP: Remove default React styles in `App.css` and `index.css`. Use `@layer base` in `index.css` to set default font families and background colors.",
+    "4. MOBILE-FIRST: Always design for mobile view first. Use `max-w-md mx-auto` for the main content container to simulate a mobile app on desktop.",
+    "5. ANIMATIONS: Use `framer-motion` for page transitions and the 'reveal' effect of answers. Install it if missing.",
+    "6. SHADCN: Customize Shadcn components (Button, Card, Input) to match the 'rounded-full' and 'soft shadow' aesthetic. Override default sharp corners.",
+    "7. TOASTS: Use `sonner` for notifications (e.g., 'Partner answered!', 'Streak updated').",
+    "8. ROUTING: Ensure `react-router-dom` is set up for navigation between Home, Question, History, and Profile.",
+    "9. DATA-TESTID: Add `data-testid` to all interactive elements (buttons, inputs, links) for testing."
+  ],
+  "universal_guidelines": [
+    "Avoid generic 'AI slop' designs. Use the specific colors and fonts provided.",
+    "Do not use gradients for text or backgrounds unless specified (e.g., subtle glow).",
+    "Ensure high contrast for accessibility, especially with the soft color palette.",
+    "Use 'lucide-react' for icons. Keep them simple and consistent.",
+    "Create a 'Layout' component that wraps all pages and handles the bottom navigation and responsive container."
+  ]
+}
