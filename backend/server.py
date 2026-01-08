@@ -783,12 +783,24 @@ async def add_reaction(reaction_data: ReactionCreate, current_user: dict = Depen
         raise HTTPException(status_code=400, detail=f"Reaction must be one of: {valid_reactions}")
     
     user_id = current_user["id"]
+    partner_id = current_user.get("partner_id")
     question_ref = db.collection('questions').document(reaction_data.question_id)
     
     if not question_ref.get().exists:
         raise HTTPException(status_code=404, detail="Question not found")
     
     question_ref.update({f"reactions.{user_id}": reaction_data.reaction})
+    
+    # Broadcast real-time update
+    if partner_id:
+        pair_key = get_pair_key(user_id, partner_id)
+        broadcast_pair_update(pair_key, "questions", {
+            "event": "reaction_added",
+            "question_id": reaction_data.question_id,
+            "user_id": user_id,
+            "reaction": reaction_data.reaction
+        })
+    
     return {"status": "ok"}
 
 @api_router.get("/questions/history", response_model=List[QuestionResponse])
