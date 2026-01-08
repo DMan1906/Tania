@@ -345,22 +345,24 @@ class CandleAPITester:
         
         trivia_id = None
         about_user = None
+        options = []
         if success:
             trivia_id = response.get('id')
             about_user = response.get('about_user')
+            options = response.get('options', [])
             print(f"   Question: {response.get('question')[:50]}...")
             print(f"   About: {about_user}")
-            print(f"   Options: {len(response.get('options', []))}")
+            print(f"   Options: {len(options)}")
         
         # Test setting correct answer (by the person the question is about)
-        if trivia_id and about_user:
+        if trivia_id and about_user and options:
             # Determine which user should set the answer
             answer_token = self.user1_token if about_user == self.user1_data.get('name') else self.user2_token
             
-            # Get the first option from the response
-            first_option = response.get('options', ['Option A'])[0] if 'options' in response else 'Option A'
+            # Use the first option from the response
+            first_option = options[0]
             
-            success, response = self.run_test(
+            success, answer_response = self.run_test(
                 "Set trivia answer",
                 "POST",
                 f"trivia/set-answer?trivia_id={trivia_id}&answer={first_option}",
@@ -369,14 +371,14 @@ class CandleAPITester:
             )
         
         # Test submitting guess (by the other user)
-        if trivia_id and about_user:
+        if trivia_id and about_user and options:
             # Determine which user should guess
             guess_token = self.user2_token if about_user == self.user1_data.get('name') else self.user1_token
             
             # Use the same option that was set as correct
-            guess_option = response.get('options', ['Option A'])[0] if 'options' in response else 'Option A'
+            guess_option = options[0]
             
-            success, response = self.run_test(
+            success, guess_response = self.run_test(
                 "Submit trivia guess",
                 "POST",
                 "trivia/guess",
@@ -389,8 +391,8 @@ class CandleAPITester:
             )
             
             if success:
-                print(f"   Correct: {response.get('is_correct')}")
-                print(f"   Points: {response.get('points_earned')}")
+                print(f"   Correct: {guess_response.get('is_correct')}")
+                print(f"   Points: {guess_response.get('points_earned')}")
         
         # Test getting trivia scores
         success, response = self.run_test(
