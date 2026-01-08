@@ -218,6 +218,19 @@ class TodayMoodResponse(BaseModel):
     user_mood: Optional[MoodCheckinResponse] = None
     partner_mood: Optional[MoodCheckinResponse] = None
 
+class MilestoneUpdate(BaseModel):
+    started_talking: Optional[str] = None
+    first_met: Optional[str] = None
+    became_official: Optional[str] = None
+    first_intimate: Optional[str] = None
+    first_sex: Optional[str] = None
+
+class MilestoneDisplay(BaseModel):
+    name: str
+    label: str
+    date: Optional[str] = None
+    days_since: Optional[int] = None
+
 
 # ============== AUTH HELPERS ==============
 
