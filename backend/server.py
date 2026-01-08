@@ -2,7 +2,9 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+import firebase_admin
+from firebase_admin import credentials, firestore
+import google.generativeai as genai
 import os
 import logging
 from pathlib import Path
@@ -14,18 +16,34 @@ import random
 from datetime import datetime, timezone, timedelta
 import jwt
 from passlib.context import CryptContext
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# ============== FIREBASE INITIALIZATION ==============
+# Initialize Firebase Admin SDK
+firebase_cred_path = os.environ.get('FIREBASE_CREDENTIALS_PATH', str(ROOT_DIR / 'firebase-credentials.json'))
+
+# Check if credentials file exists or use environment variable
+if os.path.exists(firebase_cred_path):
+    cred = credentials.Certificate(firebase_cred_path)
+elif os.environ.get('FIREBASE_CREDENTIALS_JSON'):
+    cred_dict = json.loads(os.environ['FIREBASE_CREDENTIALS_JSON'])
+    cred = credentials.Certificate(cred_dict)
+else:
+    raise ValueError("Firebase credentials not found. Please set FIREBASE_CREDENTIALS_PATH or FIREBASE_CREDENTIALS_JSON")
+
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+# ============== GEMINI INITIALIZATION ==============
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # JWT & Password config
-JWT_SECRET = os.environ.get('JWT_SECRET', 'candle-app-secret')
+JWT_SECRET = os.environ.get('JWT_SECRET', 'candle-app-secret-change-in-production')
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24 * 7  # 1 week
 
@@ -33,7 +51,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 # Create the main app and router
-app = FastAPI()
+app = FastAPI(title="Candle API", description="Couples Connection App API with Firebase")
 api_router = APIRouter(prefix="/api")
 
 # Configure logging
@@ -103,15 +121,13 @@ class StreakResponse(BaseModel):
     last_answered_date: Optional[str] = None
     milestones: List[int] = []
 
-# ============== NEW FEATURE MODELS ==============
-
-# Trivia Game Models
+# New Feature Models
 class TriviaQuestionResponse(BaseModel):
     id: str
     question: str
     options: List[str]
     category: str
-    about_user: str  # whose preferences this question is about
+    about_user: str
 
 class TriviaAnswerCreate(BaseModel):
     trivia_id: str
@@ -132,7 +148,6 @@ class TriviaScoreResponse(BaseModel):
     user_correct: int
     partner_correct: int
 
-# Love Notes Models
 class LoveNoteCreate(BaseModel):
     message: str
     emoji: Optional[str] = None
@@ -146,11 +161,10 @@ class LoveNoteResponse(BaseModel):
     is_read: bool
     created_at: str
 
-# Date Ideas Models
 class DateIdeaRequest(BaseModel):
-    budget: Optional[str] = "medium"  # low, medium, high
-    mood: Optional[str] = "romantic"  # romantic, adventurous, relaxed, fun
-    location_type: Optional[str] = "any"  # indoor, outdoor, any
+    budget: Optional[str] = "medium"
+    mood: Optional[str] = "romantic"
+    location_type: Optional[str] = "any"
 
 class DateIdeaResponse(BaseModel):
     id: str
@@ -164,11 +178,10 @@ class DateIdeaResponse(BaseModel):
     is_completed: bool = False
     created_at: str
 
-# Memory Timeline Models
 class MemoryCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    date: str  # YYYY-MM-DD
+    date: str
     photo_url: Optional[str] = None
 
 class MemoryResponse(BaseModel):
@@ -181,9 +194,8 @@ class MemoryResponse(BaseModel):
     created_by_name: str
     created_at: str
 
-# Mood Check-in Models
 class MoodCheckinCreate(BaseModel):
-    mood: str  # happy, content, neutral, stressed, sad
+    mood: str
     note: Optional[str] = None
 
 class MoodCheckinResponse(BaseModel):
@@ -220,10 +232,18 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid token")
-        user = await db.users.find_one({"id": user_id}, {"_id": 0, "password": 0})
-        if not user:
+        
+        user_ref = db.collection('users').document(user_id)
+        user_doc = user_ref.get()
+        
+        if not user_doc.exists:
             raise HTTPException(status_code=401, detail="User not found")
-        return user
+        
+        user_data = user_doc.to_dict()
+        user_data['id'] = user_doc.id
+        # Remove password from response
+        user_data.pop('password', None)
+        return user_data
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
@@ -234,21 +254,17 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 QUESTION_CATEGORIES = ["emotional", "playful", "gratitude", "dreams", "communication", "spicy", "hypothetical"]
 
-async def generate_with_gemini(prompt: str, system_message: str) -> str:
-    api_key = os.environ.get('EMERGENT_LLM_KEY')
-    if not api_key:
+async def generate_with_gemini(prompt: str, system_instruction: str = None) -> str:
+    if not GEMINI_API_KEY:
         return None
     
     try:
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"gen-{uuid.uuid4()}",
-            system_message=system_message
-        ).with_model("gemini", "gemini-2.5-flash")
-        
-        user_message = UserMessage(text=prompt)
-        response = await chat.send_message(user_message)
-        return response.strip()
+        model = genai.GenerativeModel(
+            model_name='gemini-1.5-flash',
+            system_instruction=system_instruction
+        )
+        response = model.generate_content(prompt)
+        return response.text.strip()
     except Exception as e:
         logger.error(f"Gemini API error: {e}")
         return None
@@ -279,9 +295,9 @@ Rules:
 
 Return ONLY the question text, nothing else."""
 
-    system_message = "You are a relationship expert who creates meaningful, engaging questions for couples and close friends to deepen their connection."
+    system_instruction = "You are a relationship expert who creates meaningful, engaging questions for couples and close friends to deepen their connection."
     
-    response = await generate_with_gemini(prompt, system_message)
+    response = await generate_with_gemini(prompt, system_instruction)
     if response and len(response) > 10:
         return response.strip('"').strip("'")
     return get_fallback_question(category)
@@ -332,13 +348,15 @@ def get_fallback_question(category: str) -> str:
 
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register(user_data: UserCreate):
-    existing = await db.users.find_one({"email": user_data.email})
-    if existing:
+    # Check if email exists
+    users_ref = db.collection('users')
+    existing = users_ref.where('email', '==', user_data.email).limit(1).get()
+    
+    if len(list(existing)) > 0:
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user_id = str(uuid.uuid4())
     user_doc = {
-        "id": user_id,
         "email": user_data.email,
         "password": hash_password(user_data.password),
         "name": user_data.name,
@@ -346,9 +364,12 @@ async def register(user_data: UserCreate):
         "partner_name": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    await db.users.insert_one(user_doc)
     
-    await db.streaks.insert_one({
+    # Save user to Firestore
+    users_ref.document(user_id).set(user_doc)
+    
+    # Initialize streak
+    db.collection('streaks').document(user_id).set({
         "user_id": user_id,
         "current_streak": 0,
         "longest_streak": 0,
@@ -368,14 +389,23 @@ async def register(user_data: UserCreate):
     return TokenResponse(access_token=token, user=user_response)
 
 @api_router.post("/auth/login", response_model=TokenResponse)
-async def login(credentials: UserLogin):
-    user = await db.users.find_one({"email": credentials.email})
-    if not user or not verify_password(credentials.password, user["password"]):
+async def login(credentials_data: UserLogin):
+    users_ref = db.collection('users')
+    users = users_ref.where('email', '==', credentials_data.email).limit(1).get()
+    
+    user_list = list(users)
+    if not user_list:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    token = create_token(user["id"])
+    user_doc = user_list[0]
+    user = user_doc.to_dict()
+    
+    if not verify_password(credentials_data.password, user["password"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    token = create_token(user_doc.id)
     user_response = UserResponse(
-        id=user["id"],
+        id=user_doc.id,
         email=user["email"],
         name=user["name"],
         partner_id=user.get("partner_id"),
@@ -399,12 +429,16 @@ async def generate_code(current_user: dict = Depends(get_current_user)):
     if current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You are already paired with a partner")
     
-    await db.pairing_codes.delete_many({"user_id": current_user["id"]})
+    # Delete existing codes for this user
+    codes_ref = db.collection('pairing_codes')
+    existing_codes = codes_ref.where('user_id', '==', current_user["id"]).get()
+    for doc in existing_codes:
+        doc.reference.delete()
     
     code = generate_pairing_code()
     expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
     
-    await db.pairing_codes.insert_one({
+    codes_ref.document(code).set({
         "code": code,
         "user_id": current_user["id"],
         "user_name": current_user["name"],
@@ -419,12 +453,15 @@ async def connect_with_partner(request: ConnectRequest, current_user: dict = Dep
     if current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You are already paired with a partner")
     
-    pairing = await db.pairing_codes.find_one({"code": request.code.upper()})
-    if not pairing:
+    code_doc = db.collection('pairing_codes').document(request.code.upper()).get()
+    
+    if not code_doc.exists:
         raise HTTPException(status_code=404, detail="Invalid pairing code")
     
+    pairing = code_doc.to_dict()
+    
     if datetime.fromisoformat(pairing["expires_at"]) < datetime.now(timezone.utc):
-        await db.pairing_codes.delete_one({"code": request.code.upper()})
+        code_doc.reference.delete()
         raise HTTPException(status_code=400, detail="Pairing code has expired")
     
     if pairing["user_id"] == current_user["id"]:
@@ -433,18 +470,24 @@ async def connect_with_partner(request: ConnectRequest, current_user: dict = Dep
     partner_id = pairing["user_id"]
     partner_name = pairing["user_name"]
     
-    await db.users.update_one(
-        {"id": current_user["id"]},
-        {"$set": {"partner_id": partner_id, "partner_name": partner_name}}
-    )
-    await db.users.update_one(
-        {"id": partner_id},
-        {"$set": {"partner_id": current_user["id"], "partner_name": current_user["name"]}}
-    )
+    # Update both users
+    db.collection('users').document(current_user["id"]).update({
+        "partner_id": partner_id,
+        "partner_name": partner_name
+    })
+    db.collection('users').document(partner_id).update({
+        "partner_id": current_user["id"],
+        "partner_name": current_user["name"]
+    })
     
-    await db.pairing_codes.delete_one({"code": request.code.upper()})
+    # Delete the used code
+    code_doc.reference.delete()
     
-    updated_user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0, "password": 0})
+    # Get updated user
+    updated_user = db.collection('users').document(current_user["id"]).get().to_dict()
+    updated_user['id'] = current_user["id"]
+    updated_user.pop('password', None)
+    
     return UserResponse(**updated_user)
 
 
@@ -458,6 +501,10 @@ def get_category_for_date(date_str: str) -> str:
     day_of_year = date_obj.timetuple().tm_yday
     return QUESTION_CATEGORIES[day_of_year % len(QUESTION_CATEGORIES)]
 
+def get_pair_key(user_id: str, partner_id: str) -> str:
+    pair_ids = sorted([user_id, partner_id])
+    return f"{pair_ids[0]}_{pair_ids[1]}"
+
 @api_router.get("/questions/today", response_model=QuestionResponse)
 async def get_today_question(current_user: dict = Depends(get_current_user)):
     if not current_user.get("partner_id"):
@@ -466,21 +513,27 @@ async def get_today_question(current_user: dict = Depends(get_current_user)):
     today = get_today_date()
     user_id = current_user["id"]
     partner_id = current_user["partner_id"]
+    pair_key = get_pair_key(user_id, partner_id)
     
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
+    # Check if question exists for today
+    questions_ref = db.collection('questions')
+    existing = questions_ref.where('date', '==', today).where('pair_key', '==', pair_key).limit(1).get()
+    existing_list = list(existing)
     
-    question = await db.questions.find_one({"date": today, "pair_key": pair_key}, {"_id": 0})
-    
-    if not question:
-        previous = await db.questions.find({"pair_key": pair_key}, {"_id": 0, "text": 1}).to_list(100)
-        previous_texts = [q["text"] for q in previous]
+    if existing_list:
+        question_doc = existing_list[0]
+        question = question_doc.to_dict()
+        question['id'] = question_doc.id
+    else:
+        # Get previous questions
+        previous = questions_ref.where('pair_key', '==', pair_key).order_by('date', direction=firestore.Query.DESCENDING).limit(100).get()
+        previous_texts = [q.to_dict().get('text', '') for q in previous]
         
         category = get_category_for_date(today)
         question_text = await generate_question_with_gemini(category, previous_texts)
         
+        question_id = str(uuid.uuid4())
         question = {
-            "id": str(uuid.uuid4()),
             "text": question_text,
             "category": category,
             "date": today,
@@ -489,8 +542,10 @@ async def get_today_question(current_user: dict = Depends(get_current_user)):
             "reactions": {},
             "created_at": datetime.now(timezone.utc).isoformat()
         }
-        await db.questions.insert_one(question)
+        questions_ref.document(question_id).set(question)
+        question['id'] = question_id
     
+    # Build response
     answers = question.get("answers", {})
     reactions = question.get("reactions", {})
     
@@ -499,7 +554,7 @@ async def get_today_question(current_user: dict = Depends(get_current_user)):
     both_answered = bool(user_answer and partner_answer)
     
     return QuestionResponse(
-        id=question["id"],
+        id=question['id'],
         text=question["text"],
         category=question["category"],
         date=question["date"],
@@ -523,20 +578,26 @@ async def submit_answer(answer_data: AnswerCreate, current_user: dict = Depends(
     user_id = current_user["id"]
     partner_id = current_user["partner_id"]
     
-    question = await db.questions.find_one({"id": answer_data.question_id}, {"_id": 0})
-    if not question:
+    question_ref = db.collection('questions').document(answer_data.question_id)
+    question_doc = question_ref.get()
+    
+    if not question_doc.exists:
         raise HTTPException(status_code=404, detail="Question not found")
+    
+    question = question_doc.to_dict()
     
     if question.get("answers", {}).get(user_id):
         raise HTTPException(status_code=400, detail="You have already answered this question")
     
+    # Save answer
     answered_at = datetime.now(timezone.utc).isoformat()
-    await db.questions.update_one(
-        {"id": answer_data.question_id},
-        {"$set": {f"answers.{user_id}": {"text": answer_data.answer_text, "answered_at": answered_at}}}
-    )
+    question_ref.update({
+        f"answers.{user_id}": {"text": answer_data.answer_text, "answered_at": answered_at}
+    })
     
-    updated_question = await db.questions.find_one({"id": answer_data.question_id}, {"_id": 0})
+    # Get updated question
+    updated_doc = question_ref.get()
+    updated_question = updated_doc.to_dict()
     answers = updated_question.get("answers", {})
     both_answered = bool(answers.get(user_id) and answers.get(partner_id))
     
@@ -549,7 +610,7 @@ async def submit_answer(answer_data: AnswerCreate, current_user: dict = Depends(
     reactions = updated_question.get("reactions", {})
     
     return QuestionResponse(
-        id=updated_question["id"],
+        id=answer_data.question_id,
         text=updated_question["text"],
         category=updated_question["category"],
         date=updated_question["date"],
@@ -569,15 +630,12 @@ async def add_reaction(reaction_data: ReactionCreate, current_user: dict = Depen
         raise HTTPException(status_code=400, detail=f"Reaction must be one of: {valid_reactions}")
     
     user_id = current_user["id"]
+    question_ref = db.collection('questions').document(reaction_data.question_id)
     
-    result = await db.questions.update_one(
-        {"id": reaction_data.question_id},
-        {"$set": {f"reactions.{user_id}": reaction_data.reaction}}
-    )
-    
-    if result.modified_count == 0:
+    if not question_ref.get().exists:
         raise HTTPException(status_code=404, detail="Question not found")
     
+    question_ref.update({f"reactions.{user_id}": reaction_data.reaction})
     return {"status": "ok"}
 
 @api_router.get("/questions/history", response_model=List[QuestionResponse])
@@ -587,17 +645,13 @@ async def get_question_history(current_user: dict = Depends(get_current_user)):
     
     user_id = current_user["id"]
     partner_id = current_user["partner_id"]
+    pair_key = get_pair_key(user_id, partner_id)
     
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
-    
-    questions = await db.questions.find(
-        {"pair_key": pair_key},
-        {"_id": 0}
-    ).sort("date", -1).to_list(100)
+    questions = db.collection('questions').where('pair_key', '==', pair_key).order_by('date', direction=firestore.Query.DESCENDING).limit(100).get()
     
     result = []
-    for q in questions:
+    for q_doc in questions:
+        q = q_doc.to_dict()
         answers = q.get("answers", {})
         reactions = q.get("reactions", {})
         user_answer = answers.get(user_id)
@@ -605,7 +659,7 @@ async def get_question_history(current_user: dict = Depends(get_current_user)):
         both_answered = bool(user_answer and partner_answer)
         
         result.append(QuestionResponse(
-            id=q["id"],
+            id=q_doc.id,
             text=q["text"],
             category=q["category"],
             date=q["date"],
@@ -626,8 +680,12 @@ async def get_question_history(current_user: dict = Depends(get_current_user)):
 STREAK_MILESTONES = [7, 14, 30, 60, 100, 365]
 
 async def update_streak(user_id: str, answered_date: str):
-    streak = await db.streaks.find_one({"user_id": user_id})
-    if not streak:
+    streak_ref = db.collection('streaks').document(user_id)
+    streak_doc = streak_ref.get()
+    
+    if streak_doc.exists:
+        streak = streak_doc.to_dict()
+    else:
         streak = {
             "user_id": user_id,
             "current_streak": 0,
@@ -638,7 +696,7 @@ async def update_streak(user_id: str, answered_date: str):
     
     today = datetime.strptime(answered_date, "%Y-%m-%d").date()
     
-    if streak["last_answered_date"]:
+    if streak.get("last_answered_date"):
         last_date = datetime.strptime(streak["last_answered_date"], "%Y-%m-%d").date()
         diff = (today - last_date).days
         
@@ -657,20 +715,18 @@ async def update_streak(user_id: str, answered_date: str):
         streak["longest_streak"] = streak["current_streak"]
     
     for milestone in STREAK_MILESTONES:
-        if streak["current_streak"] >= milestone and milestone not in streak["milestones_reached"]:
+        if streak["current_streak"] >= milestone and milestone not in streak.get("milestones_reached", []):
+            if "milestones_reached" not in streak:
+                streak["milestones_reached"] = []
             streak["milestones_reached"].append(milestone)
     
-    await db.streaks.update_one(
-        {"user_id": user_id},
-        {"$set": streak},
-        upsert=True
-    )
+    streak_ref.set(streak)
 
 @api_router.get("/streaks", response_model=StreakResponse)
 async def get_streak(current_user: dict = Depends(get_current_user)):
-    streak = await db.streaks.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    streak_doc = db.collection('streaks').document(current_user["id"]).get()
     
-    if not streak:
+    if not streak_doc.exists:
         return StreakResponse(
             current_streak=0,
             longest_streak=0,
@@ -678,6 +734,7 @@ async def get_streak(current_user: dict = Depends(get_current_user)):
             milestones=[]
         )
     
+    streak = streak_doc.to_dict()
     return StreakResponse(
         current_streak=streak.get("current_streak", 0),
         longest_streak=streak.get("longest_streak", 0),
@@ -712,9 +769,9 @@ B: [Option B]
 C: [Option C]
 D: [Option D]"""
 
-    system_message = "You are creating fun relationship trivia questions. Keep them light, engaging, and appropriate for couples."
+    system_instruction = "You are creating fun relationship trivia questions. Keep them light, engaging, and appropriate for couples."
     
-    response = await generate_with_gemini(prompt, system_message)
+    response = await generate_with_gemini(prompt, system_instruction)
     
     if response:
         try:
@@ -733,34 +790,15 @@ D: [Option D]"""
         except:
             pass
     
-    # Fallback questions
+    # Fallback
     fallback = {
-        "favorites": {
-            "question": f"What is {about_user_name}'s favorite way to spend a lazy Sunday?",
-            "options": ["Sleeping in and watching movies", "Going for a hike or outdoor activity", "Cooking a big brunch", "Reading or relaxing at home"]
-        },
-        "memories": {
-            "question": f"What made {about_user_name} laugh the hardest recently?",
-            "options": ["A funny video or meme", "Something you said", "A pet doing something silly", "A comedy show or movie"]
-        },
-        "preferences": {
-            "question": f"How does {about_user_name} prefer to unwind after a stressful day?",
-            "options": ["Exercise or physical activity", "Quiet time alone", "Talking about their day", "Comfort food and TV"]
-        },
-        "dreams": {
-            "question": f"What's on {about_user_name}'s bucket list?",
-            "options": ["Traveling to a specific country", "Learning a new skill", "Starting a business", "An adventure activity"]
-        },
-        "habits": {
-            "question": f"What's {about_user_name}'s morning routine like?",
-            "options": ["Quick shower and out the door", "Coffee first, everything else later", "Full routine with breakfast", "Hit snooze multiple times"]
-        },
-        "personality": {
-            "question": f"What's {about_user_name}'s love language?",
-            "options": ["Words of affirmation", "Quality time", "Physical touch", "Acts of service"]
-        }
+        "favorites": {"question": f"What is {about_user_name}'s favorite way to spend a lazy Sunday?", "options": ["Sleeping in and watching movies", "Going for a hike", "Cooking a big brunch", "Reading at home"]},
+        "memories": {"question": f"What made {about_user_name} laugh the hardest recently?", "options": ["A funny video", "Something you said", "A pet doing something silly", "A comedy show"]},
+        "preferences": {"question": f"How does {about_user_name} prefer to unwind after a stressful day?", "options": ["Exercise", "Quiet time alone", "Talking about their day", "Comfort food and TV"]},
+        "dreams": {"question": f"What's on {about_user_name}'s bucket list?", "options": ["Traveling somewhere specific", "Learning a new skill", "Starting a business", "An adventure activity"]},
+        "habits": {"question": f"What's {about_user_name}'s morning routine like?", "options": ["Quick and out the door", "Coffee first", "Full routine with breakfast", "Hit snooze multiple times"]},
+        "personality": {"question": f"What's {about_user_name}'s love language?", "options": ["Words of affirmation", "Quality time", "Physical touch", "Acts of service"]}
     }
-    
     return fallback.get(category, fallback["favorites"])
 
 @api_router.get("/trivia/question", response_model=TriviaQuestionResponse)
@@ -768,7 +806,6 @@ async def get_trivia_question(current_user: dict = Depends(get_current_user)):
     if not current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You need to pair with a partner first")
     
-    # Randomly decide if question is about user or partner
     about_partner = random.choice([True, False])
     about_user_id = current_user["partner_id"] if about_partner else current_user["id"]
     about_user_name = current_user["partner_name"] if about_partner else current_user["name"]
@@ -777,21 +814,16 @@ async def get_trivia_question(current_user: dict = Depends(get_current_user)):
     trivia_data = await generate_trivia_question(about_user_name, category)
     
     trivia_id = str(uuid.uuid4())
-    user_id = current_user["id"]
-    partner_id = current_user["partner_id"]
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
     
-    # Store the trivia question (the person it's about will set the correct answer)
-    await db.trivia.insert_one({
-        "id": trivia_id,
+    db.collection('trivia').document(trivia_id).set({
         "pair_key": pair_key,
         "question": trivia_data["question"],
         "options": trivia_data["options"],
         "category": category,
         "about_user_id": about_user_id,
         "about_user_name": about_user_name,
-        "correct_answer": None,  # To be set by the person it's about
+        "correct_answer": None,
         "guesses": {},
         "created_at": datetime.now(timezone.utc).isoformat()
     })
@@ -806,10 +838,13 @@ async def get_trivia_question(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/trivia/set-answer")
 async def set_trivia_answer(trivia_id: str, answer: str, current_user: dict = Depends(get_current_user)):
-    """The person the question is about sets the correct answer"""
-    trivia = await db.trivia.find_one({"id": trivia_id}, {"_id": 0})
-    if not trivia:
+    trivia_ref = db.collection('trivia').document(trivia_id)
+    trivia_doc = trivia_ref.get()
+    
+    if not trivia_doc.exists:
         raise HTTPException(status_code=404, detail="Trivia not found")
+    
+    trivia = trivia_doc.to_dict()
     
     if trivia["about_user_id"] != current_user["id"]:
         raise HTTPException(status_code=400, detail="Only the person this question is about can set the answer")
@@ -817,19 +852,18 @@ async def set_trivia_answer(trivia_id: str, answer: str, current_user: dict = De
     if answer not in trivia["options"]:
         raise HTTPException(status_code=400, detail="Invalid answer option")
     
-    await db.trivia.update_one(
-        {"id": trivia_id},
-        {"$set": {"correct_answer": answer}}
-    )
-    
+    trivia_ref.update({"correct_answer": answer})
     return {"status": "ok"}
 
 @api_router.post("/trivia/guess", response_model=TriviaResultResponse)
 async def submit_trivia_guess(answer_data: TriviaAnswerCreate, current_user: dict = Depends(get_current_user)):
-    """Submit a guess for a trivia question"""
-    trivia = await db.trivia.find_one({"id": answer_data.trivia_id}, {"_id": 0})
-    if not trivia:
+    trivia_ref = db.collection('trivia').document(answer_data.trivia_id)
+    trivia_doc = trivia_ref.get()
+    
+    if not trivia_doc.exists:
         raise HTTPException(status_code=404, detail="Trivia not found")
+    
+    trivia = trivia_doc.to_dict()
     
     if trivia["about_user_id"] == current_user["id"]:
         raise HTTPException(status_code=400, detail="You can't guess on a question about yourself")
@@ -841,26 +875,37 @@ async def submit_trivia_guess(answer_data: TriviaAnswerCreate, current_user: dic
     is_correct = answer_data.selected_option == trivia["correct_answer"]
     points = 10 if is_correct else 0
     
-    # Save the guess
-    await db.trivia.update_one(
-        {"id": answer_data.trivia_id},
-        {"$set": {f"guesses.{user_id}": {
+    trivia_ref.update({
+        f"guesses.{user_id}": {
             "answer": answer_data.selected_option,
             "is_correct": is_correct,
             "points": points,
             "guessed_at": datetime.now(timezone.utc).isoformat()
-        }}}
-    )
+        }
+    })
     
-    # Update user's trivia score
-    await db.trivia_scores.update_one(
-        {"user_id": user_id, "pair_key": trivia["pair_key"]},
-        {"$inc": {"score": points, "total_questions": 1, "correct": 1 if is_correct else 0}},
-        upsert=True
-    )
+    # Update score
+    score_ref = db.collection('trivia_scores').document(f"{user_id}_{trivia['pair_key']}")
+    score_doc = score_ref.get()
+    
+    if score_doc.exists:
+        current_score = score_doc.to_dict()
+        score_ref.update({
+            "score": current_score.get("score", 0) + points,
+            "total_questions": current_score.get("total_questions", 0) + 1,
+            "correct": current_score.get("correct", 0) + (1 if is_correct else 0)
+        })
+    else:
+        score_ref.set({
+            "user_id": user_id,
+            "pair_key": trivia["pair_key"],
+            "score": points,
+            "total_questions": 1,
+            "correct": 1 if is_correct else 0
+        })
     
     return TriviaResultResponse(
-        id=trivia["id"],
+        id=answer_data.trivia_id,
         question=trivia["question"],
         your_guess=answer_data.selected_option,
         correct_answer=trivia["correct_answer"],
@@ -875,18 +920,20 @@ async def get_trivia_scores(current_user: dict = Depends(get_current_user)):
     
     user_id = current_user["id"]
     partner_id = current_user["partner_id"]
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
+    pair_key = get_pair_key(user_id, partner_id)
     
-    user_score = await db.trivia_scores.find_one({"user_id": user_id, "pair_key": pair_key}, {"_id": 0})
-    partner_score = await db.trivia_scores.find_one({"user_id": partner_id, "pair_key": pair_key}, {"_id": 0})
+    user_score_doc = db.collection('trivia_scores').document(f"{user_id}_{pair_key}").get()
+    partner_score_doc = db.collection('trivia_scores').document(f"{partner_id}_{pair_key}").get()
+    
+    user_score = user_score_doc.to_dict() if user_score_doc.exists else {}
+    partner_score = partner_score_doc.to_dict() if partner_score_doc.exists else {}
     
     return TriviaScoreResponse(
-        user_score=user_score.get("score", 0) if user_score else 0,
-        partner_score=partner_score.get("score", 0) if partner_score else 0,
-        total_questions=(user_score.get("total_questions", 0) if user_score else 0) + (partner_score.get("total_questions", 0) if partner_score else 0),
-        user_correct=user_score.get("correct", 0) if user_score else 0,
-        partner_correct=partner_score.get("correct", 0) if partner_score else 0
+        user_score=user_score.get("score", 0),
+        partner_score=partner_score.get("score", 0),
+        total_questions=user_score.get("total_questions", 0) + partner_score.get("total_questions", 0),
+        user_correct=user_score.get("correct", 0),
+        partner_correct=partner_score.get("correct", 0)
     )
 
 
@@ -902,7 +949,6 @@ async def send_love_note(note_data: LoveNoteCreate, current_user: dict = Depends
     
     note_id = str(uuid.uuid4())
     note = {
-        "id": note_id,
         "from_user_id": current_user["id"],
         "from_user_name": current_user["name"],
         "to_user_id": current_user["partner_id"],
@@ -912,50 +958,65 @@ async def send_love_note(note_data: LoveNoteCreate, current_user: dict = Depends
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    await db.love_notes.insert_one(note)
+    db.collection('love_notes').document(note_id).set(note)
+    note['id'] = note_id
     
-    return LoveNoteResponse(**{k: v for k, v in note.items() if k != "to_user_id"})
+    return LoveNoteResponse(
+        id=note_id,
+        from_user_id=note["from_user_id"],
+        from_user_name=note["from_user_name"],
+        message=note["message"],
+        emoji=note["emoji"],
+        is_read=note["is_read"],
+        created_at=note["created_at"]
+    )
 
 @api_router.get("/notes", response_model=List[LoveNoteResponse])
 async def get_love_notes(current_user: dict = Depends(get_current_user)):
     if not current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You need to pair with a partner first")
     
-    notes = await db.love_notes.find(
-        {"to_user_id": current_user["id"]},
-        {"_id": 0, "to_user_id": 0}
-    ).sort("created_at", -1).to_list(50)
+    notes = db.collection('love_notes').where('to_user_id', '==', current_user["id"]).order_by('created_at', direction=firestore.Query.DESCENDING).limit(50).get()
     
-    return [LoveNoteResponse(**note) for note in notes]
+    return [LoveNoteResponse(
+        id=doc.id,
+        from_user_id=doc.to_dict()["from_user_id"],
+        from_user_name=doc.to_dict()["from_user_name"],
+        message=doc.to_dict()["message"],
+        emoji=doc.to_dict().get("emoji"),
+        is_read=doc.to_dict()["is_read"],
+        created_at=doc.to_dict()["created_at"]
+    ) for doc in notes]
 
 @api_router.get("/notes/sent", response_model=List[LoveNoteResponse])
 async def get_sent_notes(current_user: dict = Depends(get_current_user)):
-    notes = await db.love_notes.find(
-        {"from_user_id": current_user["id"]},
-        {"_id": 0, "to_user_id": 0}
-    ).sort("created_at", -1).to_list(50)
+    notes = db.collection('love_notes').where('from_user_id', '==', current_user["id"]).order_by('created_at', direction=firestore.Query.DESCENDING).limit(50).get()
     
-    return [LoveNoteResponse(**note) for note in notes]
+    return [LoveNoteResponse(
+        id=doc.id,
+        from_user_id=doc.to_dict()["from_user_id"],
+        from_user_name=doc.to_dict()["from_user_name"],
+        message=doc.to_dict()["message"],
+        emoji=doc.to_dict().get("emoji"),
+        is_read=doc.to_dict()["is_read"],
+        created_at=doc.to_dict()["created_at"]
+    ) for doc in notes]
 
 @api_router.post("/notes/{note_id}/read")
 async def mark_note_read(note_id: str, current_user: dict = Depends(get_current_user)):
-    result = await db.love_notes.update_one(
-        {"id": note_id, "to_user_id": current_user["id"]},
-        {"$set": {"is_read": True}}
-    )
+    note_ref = db.collection('love_notes').document(note_id)
+    note_doc = note_ref.get()
     
-    if result.modified_count == 0:
+    if not note_doc.exists or note_doc.to_dict()["to_user_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Note not found")
     
+    note_ref.update({"is_read": True})
     return {"status": "ok"}
 
 @api_router.get("/notes/unread-count")
 async def get_unread_count(current_user: dict = Depends(get_current_user)):
-    count = await db.love_notes.count_documents({
-        "to_user_id": current_user["id"],
-        "is_read": False
-    })
-    return {"count": count}
+    notes = db.collection('love_notes').where('to_user_id', '==', current_user["id"]).where('is_read', '==', False).get()
+    return {"count": len(list(notes))}
 
 
 # ============== DATE IDEAS ROUTES ==============
@@ -975,9 +1036,9 @@ TIP1: [First helpful tip]
 TIP2: [Second helpful tip]
 TIP3: [Third helpful tip]"""
 
-    system_message = "You are a creative date planner helping couples have amazing experiences together."
+    system_instruction = "You are a creative date planner helping couples have amazing experiences together."
     
-    response = await generate_with_gemini(prompt, system_message)
+    response = await generate_with_gemini(prompt, system_instruction)
     
     if response:
         try:
@@ -1000,14 +1061,12 @@ TIP3: [Third helpful tip]"""
         except:
             pass
     
-    # Fallback ideas
     fallbacks = {
-        "romantic": {"title": "Sunset Picnic", "description": "Pack your favorite snacks and watch the sunset together at a scenic spot.", "tips": ["Bring a cozy blanket", "Make a playlist", "Don't forget dessert"]},
-        "adventurous": {"title": "Hiking Adventure", "description": "Explore a new trail together and discover hidden gems in nature.", "tips": ["Check the weather", "Pack snacks and water", "Take photos at viewpoints"]},
-        "relaxed": {"title": "Movie Marathon Night", "description": "Create a cozy fort, pick your favorite movies, and spend the evening cuddled up.", "tips": ["Prepare snacks beforehand", "Put phones away", "Take breaks to discuss"]},
-        "fun": {"title": "Game Night Challenge", "description": "Compete in board games, video games, or card games with fun stakes.", "tips": ["Loser makes dinner", "Try new games", "Keep score for bragging rights"]}
+        "romantic": {"title": "Sunset Picnic", "description": "Pack your favorite snacks and watch the sunset together.", "tips": ["Bring a cozy blanket", "Make a playlist", "Don't forget dessert"]},
+        "adventurous": {"title": "Hiking Adventure", "description": "Explore a new trail together.", "tips": ["Check the weather", "Pack snacks", "Take photos"]},
+        "relaxed": {"title": "Movie Marathon Night", "description": "Create a cozy fort and watch your favorite movies.", "tips": ["Prepare snacks", "Put phones away", "Take breaks"]},
+        "fun": {"title": "Game Night Challenge", "description": "Compete in board games with fun stakes.", "tips": ["Loser makes dinner", "Try new games", "Keep score"]}
     }
-    
     return fallbacks.get(mood, fallbacks["romantic"])
 
 @api_router.post("/dates/generate", response_model=DateIdeaResponse)
@@ -1016,15 +1075,10 @@ async def generate_date(request: DateIdeaRequest, current_user: dict = Depends(g
         raise HTTPException(status_code=400, detail="You need to pair with a partner first")
     
     idea_data = await generate_date_idea(request.budget, request.mood, request.location_type)
-    
-    user_id = current_user["id"]
-    partner_id = current_user["partner_id"]
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
     
     idea_id = str(uuid.uuid4())
     idea = {
-        "id": idea_id,
         "pair_key": pair_key,
         "title": idea_data["title"],
         "description": idea_data["description"],
@@ -1037,7 +1091,8 @@ async def generate_date(request: DateIdeaRequest, current_user: dict = Depends(g
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    await db.date_ideas.insert_one(idea)
+    db.collection('date_ideas').document(idea_id).set(idea)
+    idea['id'] = idea_id
     
     return DateIdeaResponse(**{k: v for k, v in idea.items() if k != "pair_key"})
 
@@ -1046,44 +1101,44 @@ async def get_date_ideas(current_user: dict = Depends(get_current_user)):
     if not current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You need to pair with a partner first")
     
-    user_id = current_user["id"]
-    partner_id = current_user["partner_id"]
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    ideas = db.collection('date_ideas').where('pair_key', '==', pair_key).order_by('created_at', direction=firestore.Query.DESCENDING).limit(50).get()
     
-    ideas = await db.date_ideas.find(
-        {"pair_key": pair_key},
-        {"_id": 0, "pair_key": 0}
-    ).sort("created_at", -1).to_list(50)
-    
-    return [DateIdeaResponse(**idea) for idea in ideas]
+    return [DateIdeaResponse(
+        id=doc.id,
+        title=doc.to_dict()["title"],
+        description=doc.to_dict()["description"],
+        budget=doc.to_dict()["budget"],
+        mood=doc.to_dict()["mood"],
+        location_type=doc.to_dict()["location_type"],
+        tips=doc.to_dict()["tips"],
+        is_favorite=doc.to_dict()["is_favorite"],
+        is_completed=doc.to_dict()["is_completed"],
+        created_at=doc.to_dict()["created_at"]
+    ) for doc in ideas]
 
 @api_router.post("/dates/{idea_id}/favorite")
 async def toggle_favorite(idea_id: str, current_user: dict = Depends(get_current_user)):
-    idea = await db.date_ideas.find_one({"id": idea_id}, {"_id": 0})
-    if not idea:
+    idea_ref = db.collection('date_ideas').document(idea_id)
+    idea_doc = idea_ref.get()
+    
+    if not idea_doc.exists:
         raise HTTPException(status_code=404, detail="Date idea not found")
     
-    new_status = not idea.get("is_favorite", False)
-    await db.date_ideas.update_one(
-        {"id": idea_id},
-        {"$set": {"is_favorite": new_status}}
-    )
-    
+    new_status = not idea_doc.to_dict().get("is_favorite", False)
+    idea_ref.update({"is_favorite": new_status})
     return {"is_favorite": new_status}
 
 @api_router.post("/dates/{idea_id}/complete")
 async def mark_completed(idea_id: str, current_user: dict = Depends(get_current_user)):
-    idea = await db.date_ideas.find_one({"id": idea_id}, {"_id": 0})
-    if not idea:
+    idea_ref = db.collection('date_ideas').document(idea_id)
+    idea_doc = idea_ref.get()
+    
+    if not idea_doc.exists:
         raise HTTPException(status_code=404, detail="Date idea not found")
     
-    new_status = not idea.get("is_completed", False)
-    await db.date_ideas.update_one(
-        {"id": idea_id},
-        {"$set": {"is_completed": new_status}}
-    )
-    
+    new_status = not idea_doc.to_dict().get("is_completed", False)
+    idea_ref.update({"is_completed": new_status})
     return {"is_completed": new_status}
 
 
@@ -1094,14 +1149,10 @@ async def create_memory(memory_data: MemoryCreate, current_user: dict = Depends(
     if not current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You need to pair with a partner first")
     
-    user_id = current_user["id"]
-    partner_id = current_user["partner_id"]
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
-    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
     memory_id = str(uuid.uuid4())
+    
     memory = {
-        "id": memory_id,
         "pair_key": pair_key,
         "title": memory_data.title,
         "description": memory_data.description,
@@ -1112,7 +1163,8 @@ async def create_memory(memory_data: MemoryCreate, current_user: dict = Depends(
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    await db.memories.insert_one(memory)
+    db.collection('memories').document(memory_id).set(memory)
+    memory['id'] = memory_id
     
     return MemoryResponse(**{k: v for k, v in memory.items() if k != "pair_key"})
 
@@ -1121,28 +1173,29 @@ async def get_memories(current_user: dict = Depends(get_current_user)):
     if not current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You need to pair with a partner first")
     
-    user_id = current_user["id"]
-    partner_id = current_user["partner_id"]
-    pair_ids = sorted([user_id, partner_id])
-    pair_key = f"{pair_ids[0]}_{pair_ids[1]}"
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    memories = db.collection('memories').where('pair_key', '==', pair_key).order_by('date', direction=firestore.Query.DESCENDING).limit(100).get()
     
-    memories = await db.memories.find(
-        {"pair_key": pair_key},
-        {"_id": 0, "pair_key": 0}
-    ).sort("date", -1).to_list(100)
-    
-    return [MemoryResponse(**memory) for memory in memories]
+    return [MemoryResponse(
+        id=doc.id,
+        title=doc.to_dict()["title"],
+        description=doc.to_dict().get("description"),
+        date=doc.to_dict()["date"],
+        photo_url=doc.to_dict().get("photo_url"),
+        created_by=doc.to_dict()["created_by"],
+        created_by_name=doc.to_dict()["created_by_name"],
+        created_at=doc.to_dict()["created_at"]
+    ) for doc in memories]
 
 @api_router.delete("/memories/{memory_id}")
 async def delete_memory(memory_id: str, current_user: dict = Depends(get_current_user)):
-    result = await db.memories.delete_one({
-        "id": memory_id,
-        "created_by": current_user["id"]
-    })
+    memory_ref = db.collection('memories').document(memory_id)
+    memory_doc = memory_ref.get()
     
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Memory not found or you don't have permission to delete it")
+    if not memory_doc.exists or memory_doc.to_dict()["created_by"] != current_user["id"]:
+        raise HTTPException(status_code=404, detail="Memory not found or you don't have permission")
     
+    memory_ref.delete()
     return {"status": "ok"}
 
 
@@ -1157,13 +1210,9 @@ async def submit_mood(mood_data: MoodCheckinCreate, current_user: dict = Depends
     
     today = get_today_date()
     user_id = current_user["id"]
+    mood_id = f"{user_id}_{today}"
     
-    # Check if already submitted today
-    existing = await db.moods.find_one({"user_id": user_id, "date": today})
-    
-    mood_id = existing["id"] if existing else str(uuid.uuid4())
     mood_doc = {
-        "id": mood_id,
         "user_id": user_id,
         "user_name": current_user["name"],
         "mood": mood_data.mood,
@@ -1172,10 +1221,8 @@ async def submit_mood(mood_data: MoodCheckinCreate, current_user: dict = Depends
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
-    if existing:
-        await db.moods.update_one({"id": mood_id}, {"$set": mood_doc})
-    else:
-        await db.moods.insert_one(mood_doc)
+    db.collection('moods').document(mood_id).set(mood_doc)
+    mood_doc['id'] = mood_id
     
     return MoodCheckinResponse(**mood_doc)
 
@@ -1185,16 +1232,22 @@ async def get_today_mood(current_user: dict = Depends(get_current_user)):
     user_id = current_user["id"]
     partner_id = current_user.get("partner_id")
     
-    user_mood = await db.moods.find_one({"user_id": user_id, "date": today}, {"_id": 0})
+    user_mood_doc = db.collection('moods').document(f"{user_id}_{today}").get()
+    user_mood = None
+    if user_mood_doc.exists:
+        data = user_mood_doc.to_dict()
+        data['id'] = user_mood_doc.id
+        user_mood = MoodCheckinResponse(**data)
+    
     partner_mood = None
-    
     if partner_id:
-        partner_mood = await db.moods.find_one({"user_id": partner_id, "date": today}, {"_id": 0})
+        partner_mood_doc = db.collection('moods').document(f"{partner_id}_{today}").get()
+        if partner_mood_doc.exists:
+            data = partner_mood_doc.to_dict()
+            data['id'] = partner_mood_doc.id
+            partner_mood = MoodCheckinResponse(**data)
     
-    return TodayMoodResponse(
-        user_mood=MoodCheckinResponse(**user_mood) if user_mood else None,
-        partner_mood=MoodCheckinResponse(**partner_mood) if partner_mood else None
-    )
+    return TodayMoodResponse(user_mood=user_mood, partner_mood=partner_mood)
 
 @api_router.get("/mood/history", response_model=List[MoodCheckinResponse])
 async def get_mood_history(days: int = 30, current_user: dict = Depends(get_current_user)):
@@ -1205,19 +1258,23 @@ async def get_mood_history(days: int = 30, current_user: dict = Depends(get_curr
     if partner_id:
         user_ids.append(partner_id)
     
-    moods = await db.moods.find(
-        {"user_id": {"$in": user_ids}},
-        {"_id": 0}
-    ).sort("date", -1).to_list(days * 2)
+    all_moods = []
+    for uid in user_ids:
+        moods = db.collection('moods').where('user_id', '==', uid).order_by('date', direction=firestore.Query.DESCENDING).limit(days).get()
+        for doc in moods:
+            data = doc.to_dict()
+            data['id'] = doc.id
+            all_moods.append(MoodCheckinResponse(**data))
     
-    return [MoodCheckinResponse(**mood) for mood in moods]
+    all_moods.sort(key=lambda x: x.date, reverse=True)
+    return all_moods[:days * 2]
 
 
 # ============== HEALTH CHECK ==============
 
 @api_router.get("/")
 async def root():
-    return {"message": "Candle API is running", "status": "healthy"}
+    return {"message": "Candle API is running", "status": "healthy", "database": "Firebase Firestore"}
 
 @api_router.get("/health")
 async def health_check():
@@ -1235,7 +1292,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
