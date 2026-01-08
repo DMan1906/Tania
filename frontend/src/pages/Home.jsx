@@ -90,6 +90,30 @@ export const Home = () => {
         fetchData();
     }, [fetchData]);
 
+    // Re-fetch data when real-time updates arrive
+    useEffect(() => {
+        if (lastUpdate && !loading) {
+            // Silently refresh data in background
+            const refreshData = async () => {
+                try {
+                    const [questionRes, moodRes, notesRes, milestonesRes] = await Promise.all([
+                        axios.get(`${API_URL}/questions/today`),
+                        axios.get(`${API_URL}/mood/today`),
+                        axios.get(`${API_URL}/notes/unread-count`),
+                        axios.get(`${API_URL}/milestones`)
+                    ]);
+                    setTodayQuestion(questionRes.data);
+                    setTodayMood(moodRes.data);
+                    setUnreadNotes(notesRes.data.count);
+                    setRelationshipMilestones(milestonesRes.data);
+                } catch (err) {
+                    console.error('Failed to refresh data:', err);
+                }
+            };
+            refreshData();
+        }
+    }, [lastUpdate, loading]);
+
     useEffect(() => {
         if (!loading && !isPaired) {
             navigate('/pairing');
