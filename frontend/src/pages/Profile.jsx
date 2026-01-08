@@ -3,18 +3,44 @@ import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { User, Users, Flame, TrendingUp, Calendar, Award, LogOut } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { User, Users, Flame, TrendingUp, Calendar, Award, LogOut, Heart, Edit2, Save, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 
 const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
+const MilestoneInput = ({ label, value, onChange, icon }) => (
+    <div className="space-y-2">
+        <Label className="text-sm text-muted-foreground flex items-center gap-2">
+            {icon}
+            {label}
+        </Label>
+        <Input
+            type="date"
+            value={value || ''}
+            onChange={(e) => onChange(e.target.value)}
+            className="bg-background"
+        />
+    </div>
+);
+
 export const Profile = () => {
     const navigate = useNavigate();
-    const { user, logout } = useAuth();
+    const { user, logout, refreshUser } = useAuth();
     const [streak, setStreak] = useState({ current_streak: 0, longest_streak: 0, milestones: [] });
     const [questionCount, setQuestionCount] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [editingMilestones, setEditingMilestones] = useState(false);
+    const [savingMilestones, setSavingMilestones] = useState(false);
+    const [milestoneForm, setMilestoneForm] = useState({
+        started_talking: '',
+        first_met: '',
+        became_official: '',
+        first_intimate: '',
+        first_sex: ''
+    });
 
     const fetchData = useCallback(async () => {
         try {
@@ -35,9 +61,47 @@ export const Profile = () => {
         fetchData();
     }, [fetchData]);
 
+    useEffect(() => {
+        if (user?.milestones) {
+            setMilestoneForm({
+                started_talking: user.milestones.started_talking || '',
+                first_met: user.milestones.first_met || '',
+                became_official: user.milestones.became_official || '',
+                first_intimate: user.milestones.first_intimate || '',
+                first_sex: user.milestones.first_sex || ''
+            });
+        }
+    }, [user]);
+
     const handleLogout = () => {
         logout();
         navigate('/');
+    };
+
+    const handleSaveMilestones = async () => {
+        setSavingMilestones(true);
+        try {
+            await axios.put(`${API_URL}/milestones`, milestoneForm);
+            await refreshUser();
+            setEditingMilestones(false);
+        } catch (err) {
+            console.error('Failed to save milestones:', err);
+        } finally {
+            setSavingMilestones(false);
+        }
+    };
+
+    const handleCancelEdit = () => {
+        if (user?.milestones) {
+            setMilestoneForm({
+                started_talking: user.milestones.started_talking || '',
+                first_met: user.milestones.first_met || '',
+                became_official: user.milestones.became_official || '',
+                first_intimate: user.milestones.first_intimate || '',
+                first_sex: user.milestones.first_sex || ''
+            });
+        }
+        setEditingMilestones(false);
     };
 
     const formatDate = (dateStr) => {
@@ -110,6 +174,133 @@ export const Profile = () => {
                 </Card>
             </motion.div>
 
+            {/* Relationship Milestones Card */}
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+            >
+                <Card className="border-border/50 shadow-soft">
+                    <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                                <Heart className="w-4 h-4 text-pink-500" />
+                                Relationship Milestones
+                            </CardTitle>
+                            {!editingMilestones ? (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setEditingMilestones(true)}
+                                    className="h-8 px-2"
+                                >
+                                    <Edit2 className="w-4 h-4" />
+                                </Button>
+                            ) : (
+                                <div className="flex gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={handleCancelEdit}
+                                        className="h-8 px-2"
+                                        disabled={savingMilestones}
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={handleSaveMilestones}
+                                        className="h-8 px-2 text-primary"
+                                        disabled={savingMilestones}
+                                    >
+                                        <Save className="w-4 h-4" />
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    </CardHeader>
+                    <CardContent>
+                        <AnimatePresence mode="wait">
+                            {editingMilestones ? (
+                                <motion.div
+                                    key="editing"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="space-y-4"
+                                >
+                                    <MilestoneInput
+                                        label="Date we started talking"
+                                        value={milestoneForm.started_talking}
+                                        onChange={(v) => setMilestoneForm(prev => ({ ...prev, started_talking: v }))}
+                                        icon={<span>💬</span>}
+                                    />
+                                    <MilestoneInput
+                                        label="Date we actually met"
+                                        value={milestoneForm.first_met}
+                                        onChange={(v) => setMilestoneForm(prev => ({ ...prev, first_met: v }))}
+                                        icon={<span>👋</span>}
+                                    />
+                                    <MilestoneInput
+                                        label="Date we became official"
+                                        value={milestoneForm.became_official}
+                                        onChange={(v) => setMilestoneForm(prev => ({ ...prev, became_official: v }))}
+                                        icon={<span>💕</span>}
+                                    />
+                                    <MilestoneInput
+                                        label="First intimate moment"
+                                        value={milestoneForm.first_intimate}
+                                        onChange={(v) => setMilestoneForm(prev => ({ ...prev, first_intimate: v }))}
+                                        icon={<span>💋</span>}
+                                    />
+                                    <MilestoneInput
+                                        label="First time together"
+                                        value={milestoneForm.first_sex}
+                                        onChange={(v) => setMilestoneForm(prev => ({ ...prev, first_sex: v }))}
+                                        icon={<span>🔥</span>}
+                                    />
+                                </motion.div>
+                            ) : (
+                                <motion.div
+                                    key="viewing"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    className="space-y-3"
+                                >
+                                    {[
+                                        { key: 'started_talking', label: 'Started Talking', emoji: '💬' },
+                                        { key: 'first_met', label: 'First Met', emoji: '👋' },
+                                        { key: 'became_official', label: 'Became Official', emoji: '💕' },
+                                        { key: 'first_intimate', label: 'First Intimate', emoji: '💋' },
+                                        { key: 'first_sex', label: 'First Time', emoji: '🔥' },
+                                    ].map((item) => {
+                                        const date = user?.milestones?.[item.key];
+                                        return (
+                                            <div key={item.key} className="flex justify-between items-center text-sm">
+                                                <span className="text-muted-foreground flex items-center gap-2">
+                                                    <span>{item.emoji}</span>
+                                                    {item.label}
+                                                </span>
+                                                <span className="text-foreground">
+                                                    {date ? formatDate(date) : 'Not set'}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                    {!user?.milestones && (
+                                        <p className="text-center text-muted-foreground text-sm py-2">
+                                            Tap the edit button to add your milestones
+                                        </p>
+                                    )}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </CardContent>
+                </Card>
+            </motion.div>
+
             {/* Stats Grid */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -158,7 +349,7 @@ export const Profile = () => {
                 </Card>
             </motion.div>
 
-            {/* Milestones */}
+            {/* Streak Milestones */}
             {streak.milestones && streak.milestones.length > 0 && (
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -169,7 +360,7 @@ export const Profile = () => {
                         <CardHeader className="pb-2">
                             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                                 <Award className="w-4 h-4" />
-                                Milestones Reached
+                                Streak Milestones Reached
                             </CardTitle>
                         </CardHeader>
                         <CardContent>
