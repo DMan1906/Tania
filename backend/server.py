@@ -458,6 +458,82 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     )
 
 
+# ============== MILESTONES ROUTES ==============
+
+@api_router.put("/milestones", response_model=UserResponse)
+async def update_milestones(milestone_data: MilestoneUpdate, current_user: dict = Depends(get_current_user)):
+    """Update relationship milestones for the current user"""
+    user_ref = db.collection('users').document(current_user["id"])
+    
+    # Build milestones dict, only including non-None values
+    milestones = {}
+    if milestone_data.started_talking is not None:
+        milestones["started_talking"] = milestone_data.started_talking
+    if milestone_data.first_met is not None:
+        milestones["first_met"] = milestone_data.first_met
+    if milestone_data.became_official is not None:
+        milestones["became_official"] = milestone_data.became_official
+    if milestone_data.first_intimate is not None:
+        milestones["first_intimate"] = milestone_data.first_intimate
+    if milestone_data.first_sex is not None:
+        milestones["first_sex"] = milestone_data.first_sex
+    
+    # Merge with existing milestones
+    existing_milestones = current_user.get("milestones", {}) or {}
+    existing_milestones.update(milestones)
+    
+    user_ref.update({"milestones": existing_milestones})
+    
+    # Return updated user
+    updated_user = user_ref.get().to_dict()
+    milestones_data = updated_user.get("milestones")
+    
+    return UserResponse(
+        id=current_user["id"],
+        email=updated_user["email"],
+        name=updated_user["name"],
+        partner_id=updated_user.get("partner_id"),
+        partner_name=updated_user.get("partner_name"),
+        created_at=updated_user["created_at"],
+        milestones=RelationshipMilestones(**milestones_data) if milestones_data else None
+    )
+
+@api_router.get("/milestones", response_model=List[MilestoneDisplay])
+async def get_milestones(current_user: dict = Depends(get_current_user)):
+    """Get all relationship milestones with days since calculation"""
+    milestones = current_user.get("milestones", {}) or {}
+    today = datetime.now(timezone.utc).date()
+    
+    milestone_configs = [
+        ("started_talking", "Started Talking"),
+        ("first_met", "First Met"),
+        ("became_official", "Became Official"),
+        ("first_intimate", "First Intimate Moment"),
+        ("first_sex", "First Time Together"),
+    ]
+    
+    result = []
+    for name, label in milestone_configs:
+        date_str = milestones.get(name)
+        days_since = None
+        
+        if date_str:
+            try:
+                milestone_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                days_since = (today - milestone_date).days
+            except ValueError:
+                pass
+        
+        result.append(MilestoneDisplay(
+            name=name,
+            label=label,
+            date=date_str,
+            days_since=days_since
+        ))
+    
+    return result
+
+
 # ============== PAIRING ROUTES ==============
 
 def generate_pairing_code() -> str:
