@@ -258,6 +258,41 @@ class MilestoneDisplay(BaseModel):
     date: Optional[str] = None
     days_since: Optional[int] = None
 
+# ============== LOVE COUPONS MODELS ==============
+class LoveCouponCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    emoji: Optional[str] = "🎟️"
+
+class LoveCouponResponse(BaseModel):
+    id: str
+    title: str
+    description: Optional[str] = None
+    emoji: str
+    created_by: str
+    created_by_name: str
+    is_redeemed: bool = False
+    redeemed_at: Optional[str] = None
+    redeemed_by: Optional[str] = None
+    created_at: str
+
+# ============== BUCKET LIST MODELS ==============
+class BucketListItemCreate(BaseModel):
+    title: str
+    category: Optional[str] = "general"
+    notes: Optional[str] = None
+
+class BucketListItemResponse(BaseModel):
+    id: str
+    title: str
+    category: str
+    notes: Optional[str] = None
+    is_completed: bool = False
+    completed_at: Optional[str] = None
+    created_by: str
+    created_by_name: str
+    created_at: str
+
 
 # ============== AUTH HELPERS ==============
 
