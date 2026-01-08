@@ -22,27 +22,61 @@ Build a full-featured couples/friends connection app like Candle that helps coup
 - Streak tracking and gamification
 - Question history
 
-## What's Been Implemented (December 2025)
-### Backend
+## What's Been Implemented (January 2026)
+
+### Phase 1 - Core Features (Complete)
 - ✅ User registration/login with JWT
 - ✅ Pairing code generation (6 chars, 24hr expiry)
 - ✅ Partner connection
 - ✅ Today's question (Gemini AI integration)
-- ✅ Answer submission
+- ✅ Answer submission with reveal system
 - ✅ Reaction system (heart, laugh, surprised, cry, fire)
 - ✅ Question history
-- ✅ Streak tracking with milestones
+- ✅ Streak tracking with milestones (7, 14, 30, 60, 100, 365 days)
 
-### Frontend
+### Phase 2 - 5 New Couple Features (Complete)
+- ✅ **Trivia Game** - "How well do you know me?" quiz
+  - AI-generated questions about preferences, memories, favorites
+  - Score tracking between partners
+  - 6 categories: favorites, memories, preferences, dreams, habits, personality
+  
+- ✅ **Love Notes** - Send sweet messages
+  - Text notes with emoji reactions
+  - Received/Sent tabs
+  - Unread notification badge
+  
+- ✅ **Date Ideas Generator** - AI-powered suggestions
+  - Budget selector (low/medium/high)
+  - Mood selector (romantic/adventurous/relaxed/fun)
+  - Location type (indoor/outdoor/any)
+  - Favorite and mark complete functionality
+  
+- ✅ **Memory Timeline** - Capture special moments
+  - Add memories with title, date, description, photo URL
+  - Timeline view grouped by year
+  - Delete own memories
+  
+- ✅ **Mood Check-in** - Daily mood tracker
+  - 5 mood options: happy, content, neutral, stressed, sad
+  - Optional notes
+  - See partner's mood
+  - Mood history tracking
+
+### Frontend Pages
 - ✅ Landing page with Candle branding
 - ✅ Registration/Login pages
 - ✅ Pairing page (generate/enter code)
-- ✅ Home page with streak display
-- ✅ Today's Question page with answer flow
-- ✅ History page with expandable cards
+- ✅ Home page with streak + feature cards
+- ✅ Today's Question page
+- ✅ Trivia Game page
+- ✅ Love Notes page
+- ✅ Date Ideas page
+- ✅ Memories timeline page
+- ✅ Mood Check-in page
+- ✅ History page
 - ✅ Profile page with stats
-- ✅ Bottom navigation
-- ✅ Warm, cozy design (Playfair Display + Nunito fonts)
+- ✅ Slide-out navigation menu
+- ✅ Bottom navigation bar
 
 ## Prioritized Backlog
 
@@ -50,24 +84,24 @@ Build a full-featured couples/friends connection app like Candle that helps coup
 - [x] User authentication
 - [x] Partner pairing
 - [x] Daily questions
-- [x] Answer submission/reveal
+- [x] All 5 couple features
 
 ### P1 - Important (Future)
-- [ ] Real-time WebSocket updates (partner answered notification)
+- [ ] Real-time WebSocket updates
 - [ ] Push notifications
 - [ ] Dark mode toggle
-- [ ] Email verification
+- [ ] Photo upload for memories
 
 ### P2 - Nice to Have
 - [ ] Custom question packs
-- [ ] Photo sharing on answers
 - [ ] Voice note answers
 - [ ] Streak recovery option
 - [ ] Share achievements
+- [ ] Anniversary reminders
 
 ## Next Tasks
-1. Add real-time WebSocket for instant partner answer notifications
-2. Implement push notifications for daily reminders
-3. Add dark mode toggle in settings
-4. Create more question categories
-5. Add onboarding tutorial for new users
+1. Add real-time WebSocket for instant notifications
+2. Implement photo upload for memories (currently URL-based)
+3. Add push notifications for daily reminders
+4. Implement dark mode toggle
+5. Add achievement badges system
