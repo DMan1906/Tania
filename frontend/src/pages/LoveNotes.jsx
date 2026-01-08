@@ -63,6 +63,7 @@ const NoteCard = ({ note, isReceived, onMarkRead }) => {
 
 export const LoveNotes = () => {
     const { user } = useAuth();
+    const { notes: realtimeNotes, lastUpdate } = useRealtime();
     const [receivedNotes, setReceivedNotes] = useState([]);
     const [sentNotes, setSentNotes] = useState([]);
     const [message, setMessage] = useState('');
@@ -91,6 +92,19 @@ export const LoveNotes = () => {
     useEffect(() => {
         fetchNotes();
     }, [fetchNotes]);
+
+    // Real-time update when partner sends a note
+    useEffect(() => {
+        if (realtimeNotes && lastUpdate) {
+            // New note received - refetch and show notification
+            fetchNotes();
+            if (realtimeNotes.event === 'new_note') {
+                toast.success(`💌 New note from ${realtimeNotes.from_user_name}!`, {
+                    description: realtimeNotes.preview
+                });
+            }
+        }
+    }, [realtimeNotes, lastUpdate, fetchNotes]);
 
     const sendNote = async () => {
         if (!message.trim()) {
