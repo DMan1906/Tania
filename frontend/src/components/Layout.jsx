@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
-import { Home, MessageCircle, Brain, Heart, Calendar, Camera, Sun, User, LogOut, Flame, Menu, X } from 'lucide-react';
+import { Home, MessageCircle, Brain, Heart, Calendar, Camera, Sun, User, LogOut, Flame, Menu } from 'lucide-react';
 import { Toaster } from './ui/sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Sheet, SheetContent, SheetTrigger } from './ui/sheet';
 
 const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -13,7 +13,7 @@ const NavItem = ({ to, icon: Icon, label, badge }) => (
     <NavLink
         to={to}
         className={({ isActive }) =>
-            `flex flex-col items-center gap-1 p-2 transition-colors relative ${
+            `flex flex-col items-center gap-1 p-2 transition-all relative ${
                 isActive 
                     ? 'text-primary' 
                     : 'text-muted-foreground hover:text-primary'
@@ -21,12 +21,18 @@ const NavItem = ({ to, icon: Icon, label, badge }) => (
         }
         data-testid={`nav-${label.toLowerCase().replace(/\s+/g, '-')}`}
     >
-        <Icon className="w-5 h-5" />
-        <span className="text-xs font-medium">{label}</span>
-        {badge > 0 && (
-            <span className="absolute -top-1 right-0 w-4 h-4 bg-primary text-primary-foreground text-[10px] rounded-full flex items-center justify-center">
-                {badge > 9 ? '9+' : badge}
-            </span>
+        {({ isActive }) => (
+            <>
+                <div className={`p-2 rounded-xl transition-all ${isActive ? 'bg-primary/20 shadow-glow' : ''}`}>
+                    <Icon className="w-5 h-5" />
+                </div>
+                <span className="text-xs font-medium">{label}</span>
+                {badge > 0 && (
+                    <span className="absolute top-0 right-0 w-5 h-5 bg-accent text-accent-foreground text-[10px] rounded-full flex items-center justify-center font-bold shadow-glow">
+                        {badge > 9 ? '9+' : badge}
+                    </span>
+                )}
+            </>
         )}
     </NavLink>
 );
@@ -36,9 +42,9 @@ const SideNavItem = ({ to, icon: Icon, label, badge, onClick }) => (
         to={to}
         onClick={onClick}
         className={({ isActive }) =>
-            `flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${
+            `flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
                 isActive 
-                    ? 'bg-primary/10 text-primary' 
+                    ? 'bg-primary/20 text-primary border border-primary/30' 
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
             }`
         }
@@ -47,7 +53,7 @@ const SideNavItem = ({ to, icon: Icon, label, badge, onClick }) => (
         <Icon className="w-5 h-5" />
         <span className="font-medium">{label}</span>
         {badge > 0 && (
-            <span className="ml-auto w-5 h-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+            <span className="ml-auto w-6 h-6 bg-accent text-accent-foreground text-xs rounded-full flex items-center justify-center font-bold">
                 {badge > 9 ? '9+' : badge}
             </span>
         )}
@@ -73,7 +79,7 @@ export const Layout = ({ children }) => {
         };
         
         fetchUnreadCount();
-        const interval = setInterval(fetchUnreadCount, 60000); // Check every minute
+        const interval = setInterval(fetchUnreadCount, 60000);
         return () => clearInterval(interval);
     }, [isAuthenticated, isPaired]);
 
@@ -84,7 +90,6 @@ export const Layout = ({ children }) => {
 
     const closeMenu = () => setMenuOpen(false);
 
-    // Primary nav items (bottom bar)
     const primaryNavItems = [
         { to: '/', icon: Home, label: 'Home' },
         { to: '/question', icon: MessageCircle, label: 'Today' },
@@ -92,7 +97,6 @@ export const Layout = ({ children }) => {
         { to: '/notes', icon: Heart, label: 'Notes', badge: unreadNotes },
     ];
 
-    // All nav items (for side menu)
     const allNavItems = [
         { to: '/', icon: Home, label: 'Home' },
         { to: '/question', icon: MessageCircle, label: "Today's Question" },
@@ -106,22 +110,22 @@ export const Layout = ({ children }) => {
     ];
 
     return (
-        <div className="min-h-screen bg-background">
-            <Toaster position="top-center" richColors />
+        <div className="min-h-screen bg-background bg-pattern">
+            <Toaster position="top-center" richColors theme="dark" />
             
-            {/* Header - only show when authenticated */}
+            {/* Header */}
             {isAuthenticated && (
-                <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-lg border-b border-border/50">
+                <header className="sticky top-0 z-40 glass border-b border-border/50">
                     <div className="max-w-md mx-auto px-6 py-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3">
                             <motion.div
                                 initial={{ scale: 0 }}
                                 animate={{ scale: 1 }}
-                                className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center"
+                                className="w-10 h-10 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center shadow-glow"
                             >
-                                <Flame className="w-4 h-4 text-primary streak-flame" />
+                                <Flame className="w-5 h-5 text-primary streak-flame" />
                             </motion.div>
-                            <span className="font-serif text-xl font-bold text-foreground">Candle</span>
+                            <span className="font-serif text-xl font-bold gradient-text">Candle</span>
                         </div>
                         
                         <div className="flex items-center gap-2">
@@ -131,23 +135,22 @@ export const Layout = ({ children }) => {
                                 </span>
                             )}
                             
-                            {/* More menu for all features */}
                             {isPaired && (
                                 <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
                                     <SheetTrigger asChild>
                                         <button
-                                            className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                                            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
                                             data-testid="menu-btn"
                                             aria-label="Menu"
                                         >
                                             <Menu className="w-5 h-5" />
                                         </button>
                                     </SheetTrigger>
-                                    <SheetContent side="right" className="w-72">
+                                    <SheetContent side="right" className="w-72 bg-card border-border">
                                         <div className="flex flex-col h-full">
-                                            <div className="flex items-center gap-2 mb-6 pt-2">
-                                                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-                                                    <Flame className="w-5 h-5 text-primary" />
+                                            <div className="flex items-center gap-3 mb-6 pt-2">
+                                                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary/30 to-accent/30 flex items-center justify-center shadow-glow">
+                                                    <Flame className="w-6 h-6 text-primary" />
                                                 </div>
                                                 <div>
                                                     <p className="font-medium text-foreground">{user?.name}</p>
@@ -173,7 +176,7 @@ export const Layout = ({ children }) => {
                                                     closeMenu();
                                                     handleLogout();
                                                 }}
-                                                className="flex items-center gap-3 px-4 py-3 rounded-xl text-destructive hover:bg-destructive/10 transition-colors mt-4"
+                                                className="flex items-center gap-3 px-4 py-3 rounded-xl text-destructive hover:bg-destructive/10 transition-all mt-4"
                                                 data-testid="sidenav-logout"
                                             >
                                                 <LogOut className="w-5 h-5" />
@@ -187,7 +190,7 @@ export const Layout = ({ children }) => {
                             {!isPaired && (
                                 <button
                                     onClick={handleLogout}
-                                    className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+                                    className="p-2 rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
                                     data-testid="logout-btn"
                                     aria-label="Logout"
                                 >
@@ -200,7 +203,7 @@ export const Layout = ({ children }) => {
             )}
 
             {/* Main Content */}
-            <main className={`max-w-md mx-auto px-6 py-8 ${isAuthenticated && isPaired ? 'pb-24' : ''}`}>
+            <main className={`max-w-md mx-auto px-6 py-8 ${isAuthenticated && isPaired ? 'pb-28' : ''}`}>
                 <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -210,9 +213,9 @@ export const Layout = ({ children }) => {
                 </motion.div>
             </main>
 
-            {/* Bottom Navigation - only show when authenticated and paired */}
+            {/* Bottom Navigation */}
             {isAuthenticated && isPaired && (
-                <nav className="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-lg border-t border-border/50 pb-safe pt-2 px-6 z-50">
+                <nav className="fixed bottom-0 left-0 right-0 glass border-t border-border/50 pb-safe pt-2 px-6 z-50">
                     <div className="max-w-md mx-auto flex justify-around items-center">
                         {primaryNavItems.map((item) => (
                             <NavItem
@@ -226,7 +229,7 @@ export const Layout = ({ children }) => {
                         <NavLink
                             to="/profile"
                             className={({ isActive }) =>
-                                `flex flex-col items-center gap-1 p-2 transition-colors ${
+                                `flex flex-col items-center gap-1 p-2 transition-all ${
                                     isActive 
                                         ? 'text-primary' 
                                         : 'text-muted-foreground hover:text-primary'
@@ -234,8 +237,14 @@ export const Layout = ({ children }) => {
                             }
                             data-testid="nav-profile"
                         >
-                            <User className="w-5 h-5" />
-                            <span className="text-xs font-medium">Profile</span>
+                            {({ isActive }) => (
+                                <>
+                                    <div className={`p-2 rounded-xl transition-all ${isActive ? 'bg-primary/20 shadow-glow' : ''}`}>
+                                        <User className="w-5 h-5" />
+                                    </div>
+                                    <span className="text-xs font-medium">Profile</span>
+                                </>
+                            )}
                         </NavLink>
                     </div>
                 </nav>
