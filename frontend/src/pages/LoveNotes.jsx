@@ -95,46 +95,69 @@ export const LoveNotes = () => {
   const [sending, setSending] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const fetchNotes = useCallback(async () => {
+  const fetchNotes = useCallback(async (signal) => {
     try {
-      const [receivedRes, sentRes, unreadRes] = await Promise.all([
-        axios.get(`${API_URL}/notes`),
-        axios.get(`${API_URL}/notes/sent`),
-        axios.get(`${API_URL}/notes/unread-count`),
-      ]);
+      // Load received notes first (critical path - user needs to see inbox)
+      const receivedRes = await axios.get(`${API_URL}/notes`, { signal });
       setReceivedNotes(receivedRes.data);
-      setSentNotes(sentRes.data);
-      setUnreadCount(unreadRes.data.count);
+      setLoading(false);
+
+      // Load sent notes + unread count in background (unread has 15s cache)
+      // Use a separate abort controller for background requests so they aren't cancelled
+      const backgroundAbortController = new AbortController();
+      setTimeout(async () => {
+        try {
+          const [sentRes, unreadRes] = await Promise.all([
+            axios.get(`${API_URL}/notes/sent`, { signal: backgroundAbortController.signal }),
+            axios.get(`${API_URL}/notes/unread-count`, { signal: backgroundAbortController.signal }),
+          ]);
+          setSentNotes(sentRes.data);
+          setUnreadCount(unreadRes.data.count);
+        } catch (err) {
+          if (err.name !== 'CanceledError') {
+            console.error("Failed to fetch secondary notes data:", err);
+          }
+        }
+      }, 30);
     } catch (err) {
-      console.error("Failed to fetch notes:", err);
-    } finally {
+      if (err.name !== 'CanceledError') {
+        console.error("Failed to fetch notes:", err);
+      }
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchNotes();
+    const abortController = new AbortController();
+    fetchNotes(abortController.signal);
+    return () => abortController.abort();
   }, [fetchNotes]);
 
   // Poll as a fallback when Realtime Database isn't connected
   useEffect(() => {
     if (isConnected) return;
+    const abortController = new AbortController();
     const iv = setInterval(() => {
-      fetchNotes();
+      fetchNotes(abortController.signal);
     }, 15000);
-    return () => clearInterval(iv);
+    return () => {
+      clearInterval(iv);
+      abortController.abort();
+    };
   }, [isConnected, fetchNotes]);
 
   // Real-time update when partner sends a note
   useEffect(() => {
     if (realtimeNotes && lastUpdate) {
       // New note received - refetch and show notification
-      fetchNotes();
+      const abortController = new AbortController();
+      fetchNotes(abortController.signal);
       if (realtimeNotes.event === "new_note") {
         toast.success(`💌 New note from ${realtimeNotes.from_user_name}!`, {
           description: realtimeNotes.preview,
         });
       }
+      return () => abortController.abort();
     }
   }, [realtimeNotes, lastUpdate, fetchNotes]);
 

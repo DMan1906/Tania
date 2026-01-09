@@ -48,6 +48,21 @@ export const Trivia = () => {
     }
   }, []);
 
+  // Cleanup polling timeout when component unmounts
+  useEffect(() => {
+    return () => {
+      if (pollingTriviaTimeout) {
+        clearTimeout(pollingTriviaTimeout);
+      }
+      // Reset state on unmount to ensure clean transition
+      setQuestion(null);
+      setLoading(false);
+      setResult(null);
+      setSelectedOption(null);
+      setPhase(null);
+    };
+  }, [pollingTriviaTimeout]);
+
   useEffect(() => {
     fetchScores();
   }, [fetchScores]);
@@ -96,7 +111,7 @@ export const Trivia = () => {
     return () => {
       if (timeout) clearTimeout(timeout);
     };
-  }, [isConnected, pollingTriviaTimeout, fetchScores]);
+  }, [isConnected, fetchScores]);
 
   const getNewQuestion = async () => {
     setLoading(true);

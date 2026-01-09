@@ -111,6 +111,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ============== CACHING UTILITY ==============
+from datetime import datetime, timedelta
+from functools import wraps
+
+cache_store = {}
+
+def cache_with_ttl(ttl_seconds=30):
+    """Decorator to cache function results with TTL"""
+    def decorator(func):
+        @wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            cache_key = f"{func.__name__}:{args}:{kwargs}"
+            now = datetime.now()
+            
+            if cache_key in cache_store:
+                cached_value, cached_time = cache_store[cache_key]
+                if now - cached_time < timedelta(seconds=ttl_seconds):
+                    return cached_value
+            
+            result = await func(*args, **kwargs)
+            cache_store[cache_key] = (result, now)
+            return result
+        return async_wrapper
+    return decorator
+
 
 # ============== MODELS ==============
 
@@ -615,6 +640,7 @@ async def update_milestones(milestone_data: MilestoneUpdate, current_user: dict 
     )
 
 @api_router.get("/milestones", response_model=List[MilestoneDisplay])
+@cache_with_ttl(ttl_seconds=3600)
 async def get_milestones(current_user: dict = Depends(get_current_user)):
     """Get all relationship milestones with days since calculation"""
     milestones = current_user.get("milestones", {}) or {}
@@ -737,6 +763,7 @@ def get_pair_key(user_id: str, partner_id: str) -> str:
     return f"{pair_ids[0]}_{pair_ids[1]}"
 
 @api_router.get("/questions/today", response_model=QuestionResponse)
+@cache_with_ttl(ttl_seconds=60)
 async def get_today_question(current_user: dict = Depends(get_current_user)):
     if not current_user.get("partner_id"):
         raise HTTPException(status_code=400, detail="You need to pair with a partner first")
@@ -977,6 +1004,7 @@ async def update_streak(user_id: str, answered_date: str):
     streak_ref.set(streak)
 
 @api_router.get("/streaks", response_model=StreakResponse)
+@cache_with_ttl(ttl_seconds=15)
 async def get_streak(current_user: dict = Depends(get_current_user)):
     streak_doc = db.collection('streaks').document(current_user["id"]).get()
     
@@ -1326,6 +1354,7 @@ async def mark_note_read(note_id: str, current_user: dict = Depends(get_current_
     return {"status": "ok"}
 
 @api_router.get("/notes/unread-count")
+@cache_with_ttl(ttl_seconds=15)
 async def get_unread_count(current_user: dict = Depends(get_current_user)):
     notes = db.collection('love_notes').where('to_user_id', '==', current_user["id"]).where('is_read', '==', False).get()
     return {"count": len(list(notes))}
@@ -1552,6 +1581,7 @@ async def submit_mood(mood_data: MoodCheckinCreate, current_user: dict = Depends
     return MoodCheckinResponse(**mood_doc)
 
 @api_router.get("/mood/today", response_model=TodayMoodResponse)
+@cache_with_ttl(ttl_seconds=30)
 async def get_today_mood(current_user: dict = Depends(get_current_user)):
     today = get_today_date()
     user_id = current_user["id"]

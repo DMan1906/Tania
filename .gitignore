@@ -32,8 +32,8 @@ dist
 
 # Environment files (comprehensive coverage)
 
-*token.json*
-*credentials.json*
+#*token.json*
+#*credentials.json*
 
 # Logs and debug files
 npm-debug.log*
@@ -79,19 +79,19 @@ agenthub/agents/youtube/db
 # Mobile development
 android-sdk/ frontend/node_modules/.cache/default-development/0.pack
 frontend/node_modules/.cache/default-development/0.pack
--e 
+#-e 
 # Environment files
-*.env
-*.env.*
--e 
+#*.env
+#*.env.*
+#-e 
 # Environment files
-*.env
-*.env.*
--e 
+#*.env
+#*.env.*
+#-e 
 # Environment files
-*.env
-*.env.*
--e 
+#*.env
+#*.env.*
+#-e 
 # Environment files
-*.env
-*.env.*
+#*.env
+#*.env.*

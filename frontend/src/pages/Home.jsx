@@ -93,41 +93,63 @@ export const Home = () => {
   const [relationshipMilestones, setRelationshipMilestones] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal) => {
     if (!isPaired) {
       setLoading(false);
       return;
     }
 
     try {
-      const [streakRes, questionRes, moodRes, notesRes, milestonesRes] =
-        await Promise.all([
-          axios.get(`${API_URL}/streaks`),
-          axios.get(`${API_URL}/questions/today`),
-          axios.get(`${API_URL}/mood/today`),
-          axios.get(`${API_URL}/notes/unread-count`),
-          axios.get(`${API_URL}/milestones`),
-        ]);
+      // Load critical data first (streak + question)
+      const [streakRes, questionRes] = await Promise.all([
+        axios.get(`${API_URL}/streaks`, { signal }),
+        axios.get(`${API_URL}/questions/today`, { signal }),
+      ]);
       setStreak(streakRes.data);
       setTodayQuestion(questionRes.data);
-      setTodayMood(moodRes.data);
-      setUnreadNotes(notesRes.data.count);
-      setRelationshipMilestones(milestonesRes.data);
-    } catch (err) {
-      console.error("Failed to fetch home data:", err);
-    } finally {
       setLoading(false);
+
+      // Load secondary data immediately in background (mood + unread count have fast TTL caching)
+      setTimeout(async () => {
+        try {
+          const [moodRes, notesRes] = await Promise.all([
+            axios.get(`${API_URL}/mood/today`, { signal }), // 30s cache
+            axios.get(`${API_URL}/notes/unread-count`, { signal }), // 15s cache
+          ]);
+          setTodayMood(moodRes.data);
+          setUnreadNotes(notesRes.data.count);
+          
+          // Only fetch milestones less frequently (20% of visits, it has 3600s cache)
+          if (Math.random() < 0.2) {
+            const milestonesRes = await axios.get(`${API_URL}/milestones`, { signal });
+            setRelationshipMilestones(milestonesRes.data);
+          }
+        } catch (err) {
+          if (err.name !== 'CanceledError') {
+            console.error("Failed to fetch secondary data:", err);
+          }
+        }
+      }, 50);
+    } catch (err) {
+      if (err.name !== 'CanceledError') {
+        console.error("Failed to fetch home data:", err);
+        setLoading(false);
+      }
     }
   }, [isPaired]);
 
   useEffect(() => {
-    fetchData();
+    const abortController = new AbortController();
+    fetchData(abortController.signal);
+    return () => abortController.abort();
   }, [fetchData]);
 
   // Soft reload every 1 second
   useEffect(() => {
     if (forceRefresh > 0) {
-      fetchData();
+      const abortController = new AbortController();
+      fetchData(abortController.signal);
+      return () => abortController.abort();
     }
   }, [forceRefresh, fetchData]);
 

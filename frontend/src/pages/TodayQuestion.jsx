@@ -33,40 +33,51 @@ export const TodayQuestion = () => {
     const [submitting, setSubmitting] = useState(false);
     const [selectedReaction, setSelectedReaction] = useState(null);
 
-    const fetchQuestion = useCallback(async () => {
+    const fetchQuestion = useCallback(async (signal) => {
         try {
-            const response = await axios.get(`${API_URL}/questions/today`);
+            const response = await axios.get(`${API_URL}/questions/today`, { signal });
             setQuestion(response.data);
             if (response.data.user_reaction) {
                 setSelectedReaction(response.data.user_reaction);
             }
         } catch (err) {
-            toast.error(err.response?.data?.detail || 'Failed to load question');
+            if (err.name !== 'CanceledError') {
+                toast.error(err.response?.data?.detail || 'Failed to load question');
+            }
         } finally {
             setLoading(false);
         }
     }, []);
 
     useEffect(() => {
-        fetchQuestion();
+        const abortController = new AbortController();
+        fetchQuestion(abortController.signal);
+        return () => abortController.abort();
     }, [fetchQuestion]);
 
     // Real-time update when partner answers or reacts
     useEffect(() => {
         if (realtimeQuestions && lastUpdate) {
             // Partner answered or reacted - refetch to get latest data
-            fetchQuestion();
+            const abortController = new AbortController();
+            fetchQuestion(abortController.signal);
             if (realtimeQuestions.event === 'answer_submitted' && realtimeQuestions.user_id !== user?.id) {
                 toast.success(`${realtimeQuestions.user_name} just answered!`);
             }
+            return () => abortController.abort();
         }
     }, [realtimeQuestions, lastUpdate, fetchQuestion, user?.id]);
 
-    // Fallback polling for partner's answer every 30 seconds when waiting (if realtime not available)
+    // Fallback polling for partner's answer - only poll if waiting for their answer
+    // Use 60s interval instead of 30s to reduce unnecessary requests and let cache work
     useEffect(() => {
         if (question?.user_answer && !question?.both_answered) {
-            const interval = setInterval(fetchQuestion, 30000);
-            return () => clearInterval(interval);
+            const abortController = new AbortController();
+            const interval = setInterval(() => fetchQuestion(abortController.signal), 60000);
+            return () => {
+                clearInterval(interval);
+                abortController.abort();
+            };
         }
     }, [question, fetchQuestion]);
 
