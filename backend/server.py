@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, File, UploadFile
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -43,6 +43,20 @@ if firebase_database_url:
 firebase_admin.initialize_app(cred, firebase_options)
 db = firestore.client()
 
+# ============== CLOUDINARY SETUP ==============
+try:
+    import cloudinary
+    import cloudinary.uploader
+
+    cloudinary.config(
+        cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+        api_key=os.environ.get('CLOUDINARY_API_KEY'),
+        api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+    )
+    CLOUDINARY_AVAILABLE = True
+except Exception:
+    CLOUDINARY_AVAILABLE = False
+
 # ============== REALTIME DATABASE HELPERS ==============
 def broadcast_realtime(path: str, data: dict):
     """Broadcast data to Firebase Realtime Database for real-time sync"""
@@ -63,6 +77,16 @@ def broadcast_pair_update(pair_key: str, update_type: str, data: dict):
 def broadcast_user_update(user_id: str, update_type: str, data: dict):
     """Broadcast update to a user's realtime channel"""
     broadcast_realtime(f"users/{user_id}/{update_type}", data)
+
+
+# ============== CLOUDINARY HELPERS ==============
+def upload_image_file(file_path: str, folder: str = 'candle_app') -> str:
+    """Upload a local file to Cloudinary and return the secure URL."""
+    if not CLOUDINARY_AVAILABLE:
+        raise RuntimeError('Cloudinary SDK not available or not configured')
+
+    result = cloudinary.uploader.upload(file_path, folder=folder, use_filename=True, unique_filename=False)
+    return result.get('secure_url')
 
 # ============== GEMINI INITIALIZATION ==============
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
@@ -437,14 +461,22 @@ def get_fallback_question(category: str) -> str:
 
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register(user_data: UserCreate):
+    logger.info(f"Registration attempt for email: {user_data.email}")
+
     # Check if email exists
     users_ref = db.collection('users')
-    existing = users_ref.where('email', '==', user_data.email).limit(1).get()
-    
-    if len(list(existing)) > 0:
+    existing = users_ref.where(filter=firestore.FieldFilter('email', '==', user_data.email)).limit(1).get()
+
+    existing_list = list(existing)
+    logger.info(f"Existing users found: {len(existing_list)}")
+
+    if len(existing_list) > 0:
+        logger.warning(f"Email already registered: {user_data.email}")
         raise HTTPException(status_code=400, detail="Email already registered")
-    
+
     user_id = str(uuid.uuid4())
+    logger.info(f"Creating user with ID: {user_id}")
+
     user_doc = {
         "email": user_data.email,
         "password": hash_password(user_data.password),
@@ -453,19 +485,28 @@ async def register(user_data: UserCreate):
         "partner_name": None,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
-    
+
     # Save user to Firestore
-    users_ref.document(user_id).set(user_doc)
-    
+    try:
+        users_ref.document(user_id).set(user_doc)
+        logger.info(f"User document created successfully")
+    except Exception as e:
+        logger.error(f"Failed to create user document: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
     # Initialize streak
-    db.collection('streaks').document(user_id).set({
-        "user_id": user_id,
-        "current_streak": 0,
-        "longest_streak": 0,
-        "last_answered_date": None,
-        "milestones_reached": []
-    })
-    
+    try:
+        db.collection('streaks').document(user_id).set({
+            "user_id": user_id,
+            "current_streak": 0,
+            "longest_streak": 0,
+            "last_answered_date": None,
+            "milestones_reached": []
+        })
+        logger.info(f"Streak document created successfully")
+    except Exception as e:
+        logger.warning(f"Failed to create streak document: {e}")
+
     token = create_token(user_id)
     user_response = UserResponse(
         id=user_id,
@@ -476,12 +517,14 @@ async def register(user_data: UserCreate):
         created_at=user_doc["created_at"],
         milestones=None
     )
+
+    logger.info(f"Registration successful for user: {user_id}")
     return TokenResponse(access_token=token, user=user_response)
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials_data: UserLogin):
     users_ref = db.collection('users')
-    users = users_ref.where('email', '==', credentials_data.email).limit(1).get()
+    users = users_ref.where(filter=firestore.FieldFilter('email', '==', credentials_data.email)).limit(1).get()
     
     user_list = list(users)
     if not user_list:
@@ -1039,6 +1082,19 @@ async def get_trivia_question(current_user: dict = Depends(get_current_user)):
         "created_at": datetime.now(timezone.utc).isoformat()
     })
     
+    # Broadcast real-time update to both partners
+    broadcast_pair_update(pair_key, "trivia", {
+        "event": "new_question",
+        "trivia_id": trivia_id,
+        "question": trivia_data["question"],
+        "options": trivia_data["options"],
+        "category": category,
+        "about_user_id": about_user_id,
+        "about_user_name": about_user_name,
+        "created_by": current_user["id"],
+        "created_by_name": current_user["name"]
+    })
+    
     return TriviaQuestionResponse(
         id=trivia_id,
         question=trivia_data["question"],
@@ -1201,6 +1257,21 @@ async def send_love_note(note_data: LoveNoteCreate, current_user: dict = Depends
         "emoji": note_data.emoji,
         "preview": note_data.message[:50] + "..." if len(note_data.message) > 50 else note_data.message
     })
+
+    # Also write a lightweight Firestore notification so clients without RTDB can poll
+    try:
+        notif_ref = db.collection('user_notifications').document(f"{current_user['partner_id']}_{note_id}")
+        notif_ref.set({
+            "to_user_id": current_user['partner_id'],
+            "event": "new_note",
+            "note_id": note_id,
+            "from_user_id": current_user['id'],
+            "from_user_name": current_user['name'],
+            "preview": note_data.message[:100],
+            "created_at": datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        logger.warning(f"Failed to write user notification: {e}")
     
     return LoveNoteResponse(
         id=note_id,
@@ -1767,11 +1838,700 @@ async def get_spinner_categories():
     return list(DATE_PRESETS.keys())
 
 
+# ============== UPLOADS (CLOUDINARY) ==============
+@api_router.post('/upload/photo')
+async def upload_photo(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """Upload a photo to Cloudinary and return the secure URL.
+
+    Requires CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET in environment.
+    """
+    if not CLOUDINARY_AVAILABLE:
+        raise HTTPException(status_code=500, detail='Cloudinary not configured on server')
+
+    # Quick permission check
+    if not current_user:
+        raise HTTPException(status_code=401, detail='Authentication required')
+
+    tmp_dir = ROOT_DIR / 'tmp'
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = tmp_dir / file.filename
+
+    try:
+        content = await file.read()
+        with open(tmp_path, 'wb') as f:
+            f.write(content)
+
+        url = upload_image_file(str(tmp_path), folder=f"candle/{current_user['id']}")
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
+        return {"url": url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to upload photo: {e}")
+        raise HTTPException(status_code=500, detail='Upload failed')
+
+
+# ============== THUMB KISS / TOUCH FEATURE ==============
+
+@api_router.post("/thumb-kiss")
+async def send_thumb_kiss(current_user: dict = Depends(get_current_user)):
+    """Send a thumb kiss to partner - a cute touch gesture"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    
+    # Create thumb kiss event
+    kiss_event = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "from_user_id": current_user["id"],
+        "from_user_name": current_user["name"],
+        "to_user_id": current_user["partner_id"],
+        "type": "thumb_kiss"
+    }
+    
+    # Save to Firestore for history
+    db.collection('thumb_kisses').add({
+        "pair_key": pair_key,
+        "from_user_id": current_user["id"],
+        "from_user_name": current_user["name"],
+        "to_user_id": current_user["partner_id"],
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Broadcast real-time update
+    broadcast_pair_update(pair_key, "thumbKiss", kiss_event)
+    
+    return {"status": "sent", "timestamp": kiss_event["timestamp"]}
+
+
+@api_router.get("/thumb-kiss/count")
+async def get_thumb_kiss_count(current_user: dict = Depends(get_current_user)):
+    """Get count of thumb kisses received today"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    today = datetime.now(timezone.utc).date().isoformat()
+    
+    # Query Firestore for today's kisses
+    kisses = db.collection('thumb_kisses').where(
+        'pair_key', '==', pair_key
+    ).where(
+        'to_user_id', '==', current_user['id']
+    ).stream()
+    
+    count = 0
+    for kiss in kisses:
+        kiss_date = kiss.get('created_at')[:10]
+        if kiss_date == today:
+            count += 1
+    
+    return {"count": count, "date": today}
+
+
+# ============== FANTASY MATCHER FEATURE ==============
+
+FANTASY_PREFERENCES = {
+    "setting": ["Beach", "Mountains", "City", "Home", "Hotel", "Adventure"],
+    "vibe": ["Romantic", "Playful", "Adventurous", "Relaxing", "Passionate", "Spontaneous"],
+    "mood": ["Tender", "Flirty", "Bold", "Sensual", "Giggly", "Intense"],
+    "timing": ["Morning", "Afternoon", "Evening", "Night", "Anytime", "Surprise me"],
+}
+
+@api_router.post("/fantasy/profile")
+async def save_fantasy_profile(preferences: dict, current_user: dict = Depends(get_current_user)):
+    """Save user's fantasy preferences"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    # Validate preferences
+    for key in preferences:
+        if key not in FANTASY_PREFERENCES:
+            raise HTTPException(status_code=400, detail=f"Invalid preference: {key}")
+        if preferences[key] not in FANTASY_PREFERENCES[key]:
+            raise HTTPException(status_code=400, detail=f"Invalid value for {key}: {preferences[key]}")
+    
+    db.collection('fantasy_profiles').document(current_user["id"]).set({
+        "pair_key": get_pair_key(current_user["id"], current_user["partner_id"]),
+        "preferences": preferences,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "user_name": current_user["name"]
+    })
+    
+    # Broadcast update
+    broadcast_user_update(current_user["id"], "fantasy_profile", {"completed": True})
+    
+    return {"status": "saved", "preferences": preferences}
+
+
+@api_router.get("/fantasy/profile")
+async def get_fantasy_profile(current_user: dict = Depends(get_current_user)):
+    """Get user's fantasy profile"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    profile_doc = db.collection('fantasy_profiles').document(current_user["id"]).get()
+    
+    if profile_doc.exists:
+        profile = profile_doc.to_dict()
+        return {
+            "user_id": current_user["id"],
+            "preferences": profile.get("preferences", {}),
+            "updated_at": profile.get("updated_at")
+        }
+    
+    return {"user_id": current_user["id"], "preferences": {}, "updated_at": None}
+
+
+@api_router.get("/fantasy/match")
+async def get_fantasy_match(current_user: dict = Depends(get_current_user)):
+    """Get compatibility score with partner based on fantasy preferences"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    # Get both profiles
+    user_profile = db.collection('fantasy_profiles').document(current_user["id"]).get()
+    partner_profile = db.collection('fantasy_profiles').document(current_user["partner_id"]).get()
+    
+    if not user_profile.exists or not partner_profile.exists:
+        raise HTTPException(status_code=400, detail="Both partners must complete their fantasy profiles first")
+    
+    user_prefs = user_profile.to_dict().get("preferences", {})
+    partner_prefs = partner_profile.to_dict().get("preferences", {})
+    
+    # Calculate compatibility score
+    matches = 0
+    total = len(FANTASY_PREFERENCES)
+    
+    for category in FANTASY_PREFERENCES:
+        if user_prefs.get(category) == partner_prefs.get(category):
+            matches += 1
+    
+    compatibility = round((matches / total) * 100)
+    
+    return {
+        "compatibility": compatibility,
+        "matches": matches,
+        "total": total,
+        "your_preferences": user_prefs,
+        "partner_preferences": partner_prefs
+    }
+
+
+# ============== SPICY DICE FEATURE ==============
+
+SPICY_DICE_ACTIVITIES = {
+    1: "Give each other a sensual massage",
+    2: "Start with a slow, passionate kiss",
+    3: "Whisper something you love about your partner",
+    4: "Take turns choosing positions",
+    5: "Switch locations (if possible!)",
+    6: "Try something you've been curious about",
+    7: "Compliment your partner's body",
+    8: "Create a romantic playlist together first",
+    9: "Take a warm bath together",
+    10: "Give your partner a surprise",
+    11: "Ask what they're fantasizing about",
+    12: "Set the mood with candles/lighting",
+    13: "Make it a slow, teasing experience",
+    14: "Try synchronized movements",
+    15: "Use ice or warmth as a sensation",
+    16: "Blindfold and use touch sensations",
+    17: "Give gentle, playful touches",
+    18: "Take your time and savor each moment",
+    19: "Whisper dirty thoughts to each other",
+    20: "Try a position you've never done",
+    21: "Role-play a scenario together",
+    22: "Use props or accessories",
+    23: "Take control and lead your partner",
+    24: "Be vulnerable and share desires",
+    25: "Use mirrors for visual excitement",
+    26: "Try tantric breathing together",
+    27: "Create a comfortable, judgment-free space",
+    28: "Be playful and laugh together",
+    29: "Explore each other slowly",
+    30: "End with cuddles and affection",
+    31: "Try something totally spontaneous",
+    32: "Make lots of eye contact",
+    33: "Use your hands in new ways",
+    34: "Try a different pace",
+    35: "Share what felt amazing",
+    36: "Plan the next adventure together",
+}
+
+@api_router.post("/spicy-dice/roll")
+async def roll_spicy_dice(current_user: dict = Depends(get_current_user)):
+    """Roll the spicy dice and get a random activity"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    
+    # Roll two dice (1-6 each)
+    import random
+    dice1 = random.randint(1, 6)
+    dice2 = random.randint(1, 6)
+    
+    # Convert to activity number (1-36)
+    activity_num = (dice1 - 1) * 6 + dice2
+    activity = SPICY_DICE_ACTIVITIES.get(activity_num, "Try something spontaneous!")
+    
+    # Save roll to history
+    db.collection('spicy_dice_rolls').add({
+        "pair_key": pair_key,
+        "user_id": current_user["id"],
+        "user_name": current_user["name"],
+        "dice1": dice1,
+        "dice2": dice2,
+        "activity_num": activity_num,
+        "activity": activity,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Broadcast real-time update
+    broadcast_pair_update(pair_key, "spicy_dice", {
+        "event": "dice_rolled",
+        "user_id": current_user["id"],
+        "user_name": current_user["name"],
+        "dice1": dice1,
+        "dice2": dice2,
+        "activity_num": activity_num,
+        "activity": activity
+    })
+    
+    return {
+        "dice1": dice1,
+        "dice2": dice2,
+        "activity_num": activity_num,
+        "activity": activity,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@api_router.get("/spicy-dice/activities")
+async def get_spicy_dice_activities():
+    """Get all spicy dice activities"""
+    return {
+        "activities": SPICY_DICE_ACTIVITIES,
+        "total": len(SPICY_DICE_ACTIVITIES)
+    }
+
+
+@api_router.get("/spicy-dice/history")
+async def get_spicy_dice_history(current_user: dict = Depends(get_current_user)):
+    """Get roll history for the pair"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    
+    rolls = db.collection('spicy_dice_rolls').where(
+        'pair_key', '==', pair_key
+    ).order_by('created_at', direction='DESCENDING').limit(20).stream()
+    
+    history = []
+    for roll in rolls:
+        history.append(roll.to_dict())
+    
+    return {"rolls": history}
+
+
+# ============== SHARED CANVAS FEATURE ==============
+
+@api_router.post("/canvas/save")
+async def save_canvas(data: dict, current_user: dict = Depends(get_current_user)):
+    """Save a canvas drawing"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    
+    if not data.get("image_data"):
+        raise HTTPException(status_code=400, detail="No image data provided")
+    
+    canvas_id = str(uuid.uuid4())
+    
+    db.collection('canvas_drawings').document(canvas_id).set({
+        "pair_key": pair_key,
+        "creator_id": current_user["id"],
+        "creator_name": current_user["name"],
+        "image_data": data["image_data"],
+        "title": data.get("title", "Untitled Drawing"),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Broadcast update
+    broadcast_pair_update(pair_key, "canvas", {
+        "event": "drawing_saved",
+        "drawing_id": canvas_id,
+        "creator_id": current_user["id"],
+        "creator_name": current_user["name"],
+        "title": data.get("title", "Untitled Drawing")
+    })
+    
+    return {"drawing_id": canvas_id, "status": "saved"}
+
+
+@api_router.get("/canvas")
+async def get_canvas_drawings(current_user: dict = Depends(get_current_user)):
+    """Get all saved canvas drawings for the pair"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    
+    drawings = db.collection('canvas_drawings').where(
+        'pair_key', '==', pair_key
+    ).order_by('created_at', direction='DESCENDING').stream()
+    
+    result = []
+    for drawing in drawings:
+        data = drawing.to_dict()
+        # Don't include full image data in list, just metadata
+        result.append({
+            "drawing_id": drawing.id,
+            "creator_name": data.get("creator_name"),
+            "title": data.get("title"),
+            "created_at": data.get("created_at")
+        })
+    
+    return {"drawings": result}
+
+
+@api_router.get("/canvas/{drawing_id}")
+async def get_canvas_drawing(drawing_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a specific canvas drawing"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    drawing_doc = db.collection('canvas_drawings').document(drawing_id).get()
+    
+    if not drawing_doc.exists:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+    
+    drawing = drawing_doc.to_dict()
+    pair_key = get_pair_key(current_user["id"], current_user["partner_id"])
+    
+    if drawing.get("pair_key") != pair_key:
+        raise HTTPException(status_code=403, detail="Not authorized to view this drawing")
+    
+    return {
+        "drawing_id": drawing_id,
+        "creator_name": drawing.get("creator_name"),
+        "title": drawing.get("title"),
+        "image_data": drawing.get("image_data"),
+        "created_at": drawing.get("created_at")
+    }
+
+
+@api_router.delete("/canvas/{drawing_id}")
+async def delete_canvas_drawing(drawing_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a canvas drawing"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    drawing_doc = db.collection('canvas_drawings').document(drawing_id).get()
+    
+    if not drawing_doc.exists:
+        raise HTTPException(status_code=404, detail="Drawing not found")
+    
+    drawing = drawing_doc.to_dict()
+    
+    if drawing.get("creator_id") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only creator can delete drawing")
+    
+    pair_key = drawing.get("pair_key")
+    db.collection('canvas_drawings').document(drawing_id).delete()
+    
+    # Broadcast update
+    broadcast_pair_update(pair_key, "canvas", {
+        "event": "drawing_deleted",
+        "drawing_id": drawing_id
+    })
+    
+    return {"status": "deleted"}
+
+
+# ============== PRIVACY SETTINGS ==============
+
+DEFAULT_PRIVACY_SETTINGS = {
+    "share_moods": True,
+    "share_memories": True,
+    "share_bucket_list": True,
+    "share_coupons": True,
+    "share_trivia_scores": True,
+    "share_date_history": True,
+    "share_love_notes": True,
+    "show_full_history": True
+}
+
+@api_router.get("/privacy/settings")
+async def get_privacy_settings(current_user: dict = Depends(get_current_user)):
+    """Get user's privacy settings"""
+    settings_doc = db.collection('privacy_settings').document(current_user["id"]).get()
+    
+    if settings_doc.exists:
+        return settings_doc.to_dict()
+    
+    # Return default settings if not found
+    return DEFAULT_PRIVACY_SETTINGS
+
+
+@api_router.put("/privacy/settings")
+async def update_privacy_settings(settings: dict, current_user: dict = Depends(get_current_user)):
+    """Update user's privacy settings"""
+    # Validate all settings exist
+    for key in DEFAULT_PRIVACY_SETTINGS.keys():
+        if key not in settings:
+            raise HTTPException(status_code=400, detail=f"Missing setting: {key}")
+        if not isinstance(settings[key], bool):
+            raise HTTPException(status_code=400, detail=f"Setting must be boolean: {key}")
+    
+    db.collection('privacy_settings').document(current_user["id"]).set({
+        "user_id": current_user["id"],
+        "user_name": current_user["name"],
+        **settings,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Broadcast update
+    broadcast_user_update(current_user["id"], "privacy_settings", settings)
+    
+    return {"status": "updated", "settings": settings}
+
+
+@api_router.get("/partner/privacy")
+async def check_partner_privacy(current_user: dict = Depends(get_current_user)):
+    """Check what privacy settings partner has enabled"""
+    if not current_user.get("partner_id"):
+        raise HTTPException(status_code=400, detail="You need to pair with a partner first")
+    
+    settings_doc = db.collection('privacy_settings').document(current_user["partner_id"]).get()
+    
+    if settings_doc.exists:
+        return settings_doc.to_dict()
+    
+    # Return default settings (everything shared)
+    return DEFAULT_PRIVACY_SETTINGS
+
+
 # ============== HEALTH CHECK ==============
 
 @api_router.get("/")
 async def root():
     return {"message": "Candle API is running", "status": "healthy", "database": "Firebase Firestore"}
+
+# ============== RELATIONSHIP MILESTONES ==============
+
+@api_router.put("/milestones")
+async def update_milestones(milestones: dict, current_user: dict = Depends(get_current_user)):
+    """Update relationship milestone dates"""
+    # Milestone fields: start_talking, met, became_official, first_kiss, first_time
+    valid_fields = {'start_talking', 'met', 'became_official', 'first_kiss', 'first_time'}
+    
+    # Validate that all provided fields are valid
+    for key in milestones.keys():
+        if key not in valid_fields:
+            raise HTTPException(status_code=400, detail=f"Invalid milestone field: {key}")
+    
+    # Save to Firestore
+    db.collection('users').document(current_user["id"]).update({
+        "milestones": milestones,
+        "milestones_updated_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Broadcast update
+    broadcast_user_update(current_user["id"], "milestones", milestones)
+    
+    return {"status": "updated", "milestones": milestones}
+
+
+@api_router.get("/milestones")
+async def get_milestones(current_user: dict = Depends(get_current_user)):
+    """Get relationship milestones for current user"""
+    user_doc = db.collection('users').document(current_user["id"]).get()
+    milestones = user_doc.get('milestones', {})
+    return milestones
+
+
+@api_router.get("/partner/milestones")
+async def get_partner_milestones(current_user: dict = Depends(get_current_user)):
+    """Get partner's relationship milestones"""
+    if not current_user.get('partner_id'):
+        raise HTTPException(status_code=400, detail="Not paired with a partner")
+    
+    partner_doc = db.collection('users').document(current_user['partner_id']).get()
+    milestones = partner_doc.get('milestones', {})
+    return milestones
+
+
+# ============== PIC OF THE DAY ==============
+
+@api_router.post("/pic-of-day")
+async def upload_pic_of_day(pic_data: dict, current_user: dict = Depends(get_current_user)):
+    """Upload today's pic (image_url from Cloudinary)"""
+    if not current_user.get('partner_id'):
+        raise HTTPException(status_code=400, detail="Not paired with a partner")
+    
+    today = datetime.now(timezone.utc).date().isoformat()
+    
+    db.collection('pic_of_day').document(today).set({
+        "date": today,
+        "user_id": current_user["id"],
+        "user_name": current_user["name"],
+        "image_url": pic_data.get('image_url'),
+        "pair_key": current_user.get('pair_key'),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }, merge=True)
+    
+    # Broadcast to partner
+    broadcast_pair_update(
+        current_user.get('pair_key'),
+        "pic_of_day",
+        {"date": today, "user_id": current_user["id"], "uploaded": True}
+    )
+    
+    return {"status": "uploaded", "date": today}
+
+
+@api_router.get("/pic-of-day")
+async def get_pic_of_day(current_user: dict = Depends(get_current_user)):
+    """Get today's pic (if partner uploaded, blur if not"""
+    if not current_user.get('partner_id'):
+        raise HTTPException(status_code=400, detail="Not paired with a partner")
+    
+    today = datetime.now(timezone.utc).date().isoformat()
+    
+    pic_doc = db.collection('pic_of_day').document(today).get()
+    if not pic_doc.exists:
+        return {"status": "no_pic", "date": today}
+    
+    pic_data = pic_doc.to_dict()
+    
+    # Check if both partners have uploaded
+    partner_uploaded = pic_data.get('partner_uploaded', False)
+    my_uploaded = pic_data.get('my_uploaded', False)
+    
+    return {
+        "date": today,
+        "partner_image": pic_data.get('image_url'),
+        "should_blur": not my_uploaded,  # Blur if I haven't uploaded yet
+        "partner_uploaded": partner_uploaded,
+        "my_uploaded": my_uploaded
+    }
+
+
+@api_router.get("/pic-of-day/history")
+async def get_pic_history(current_user: dict = Depends(get_current_user)):
+    """Get all past pics (archive them to memories)"""
+    if not current_user.get('pair_key'):
+        raise HTTPException(status_code=400, detail="Not paired")
+    
+    pics = db.collection('pic_of_day')\
+        .where('pair_key', '==', current_user['pair_key'])\
+        .order_by('date', direction='DESCENDING')\
+        .limit(30)\
+        .stream()
+    
+    return [{"date": p.get('date'), "image_url": p.get('image_url')} for p in pics]
+
+
+# ============== TRIVIA OVERHAUL ==============
+
+@api_router.post("/trivia/answer-and-pass")
+async def trivia_answer_and_pass(answer_data: dict, current_user: dict = Depends(get_current_user)):
+    """Partner A answers trivia, passes to Partner B for guess"""
+    if not current_user.get('pair_key'):
+        raise HTTPException(status_code=400, detail="Not paired")
+    
+    trivia_id = answer_data.get('trivia_id')
+    partner_answer = answer_data.get('answer')
+    
+    # Save Partner A's answer
+    db.collection('trivia_rounds').add({
+        "pair_key": current_user['pair_key'],
+        "trivia_id": trivia_id,
+        "phase": "partner_a_answered",
+        "partner_a_id": current_user["id"],
+        "partner_a_answer": partner_answer,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Broadcast to Partner B (pass for guessing)
+    broadcast_pair_update(
+        current_user['pair_key'],
+        "trivia_waiting_guess",
+        {"trivia_id": trivia_id, "phase": "waiting_b_guess"}
+    )
+    
+    return {"status": "passed_to_partner"}
+
+
+@api_router.post("/trivia/submit-guess")
+async def trivia_submit_guess(guess_data: dict, current_user: dict = Depends(get_current_user)):
+    """Partner B guesses Partner A's answer"""
+    if not current_user.get('pair_key'):
+        raise HTTPException(status_code=400, detail="Not paired")
+    
+    trivia_id = guess_data.get('trivia_id')
+    partner_b_guess = guess_data.get('guess')
+    
+    # Get the trivia round
+    rounds = db.collection('trivia_rounds')\
+        .where('trivia_id', '==', trivia_id)\
+        .where('pair_key', '==', current_user['pair_key'])\
+        .order_by('created_at', direction='DESCENDING')\
+        .limit(1)\
+        .stream()
+    
+    round_data = None
+    for round_doc in rounds:
+        round_data = round_doc.to_dict()
+        round_id = round_doc.id
+    
+    if not round_data:
+        raise HTTPException(status_code=404, detail="Trivia round not found")
+    
+    partner_a_answer = round_data.get('partner_a_answer')
+    is_correct = partner_b_guess == partner_a_answer
+    
+    # Update round with Partner B's guess and result
+    db.collection('trivia_rounds').document(round_id).update({
+        "phase": "completed",
+        "partner_b_id": current_user["id"],
+        "partner_b_guess": partner_b_guess,
+        "is_correct": is_correct,
+        "completed_at": datetime.now(timezone.utc).isoformat()
+    })
+    
+    # Get actual trivia question for context
+    trivia_question = db.collection('trivia').document(trivia_id).get()
+    
+    # Broadcast results to both partners
+    broadcast_pair_update(
+        current_user['pair_key'],
+        "trivia_result",
+        {
+            "trivia_id": trivia_id,
+            "is_correct": is_correct,
+            "partner_a_answer": partner_a_answer,
+            "partner_b_guess": partner_b_guess,
+            "question": trivia_question.get('question') if trivia_question.exists else ""
+        }
+    )
+    
+    return {
+        "status": "completed",
+        "is_correct": is_correct,
+        "partner_a_answer": partner_a_answer,
+        "partner_b_guess": partner_b_guess
+    }
+
 
 @api_router.get("/health")
 async def health_check():
